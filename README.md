@@ -1,2 +1,2 @@
 # KACOS
-Vibecoded pperating system written in Rust 
+Vibecoded operating system written in Rust 
