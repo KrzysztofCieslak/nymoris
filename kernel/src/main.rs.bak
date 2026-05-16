@@ -1,0 +1,62 @@
+#![no_std]
+#![no_main]
+
+use core::panic::PanicInfo;
+use kacos::{gdt, idt, interrupts, keyboard, shell, vga};
+use kacos::println;
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    vga::WRITER.lock().set_color(vga::Color::White, vga::Color::Red);
+    println!("\n\nKERNEL PANIC: {}", info);
+    interrupts::hlt_loop();
+}
+
+unsafe fn outb(port: u16, value: u8) {
+    core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack));
+}
+
+unsafe fn inb(port: u16) -> u8 {
+    let value: u8;
+    core::arch::asm!("in al, dx", out("al") value, in("dx") port, options(nomem, nostack));
+    value
+}
+
+#[no_mangle]
+#[link_section = ".text._start"]
+pub extern "C" fn _start() -> ! {
+    unsafe {
+        outb(0x3F8 + 1, 0x00);
+        outb(0x3F8 + 3, 0x80);
+        outb(0x3F8 + 0, 0x03);
+        outb(0x3F8 + 1, 0x00);
+        outb(0x3F8 + 3, 0x03);
+        outb(0x3F8 + 2, 0xC7);
+        outb(0x3F8 + 4, 0x0B);
+
+        for b in b"KACOS kernel _start() reached!\n" {
+            outb(0x3F8, *b);
+        }
+    }
+
+    vga::init();
+
+    println!("KACOS v0.1 booting...");
+    println!("============================");
+
+    gdt::init();
+    println!("[OK] GDT initialized");
+
+    idt::init();
+    println!("[OK] IDT initialized");
+
+    unsafe { interrupts::init() };
+    println!("[OK] PIC initialized");
+
+    keyboard::init();
+    println!("[OK] Keyboard initialized");
+
+    println!("\nWelcome to KACOS! Type 'help' for available commands.\n");
+
+    shell::run();
+}

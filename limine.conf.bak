@@ -1,0 +1,5 @@
+timeout: 5
+
+/Test Entry
+    protocol: limine
+    kernel_path: boot():/nonexistent
