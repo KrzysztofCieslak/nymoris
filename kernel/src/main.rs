@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use kacos::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory};
+use kacos::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net};
 use kacos::println;
 
 #[panic_handler]
@@ -94,6 +94,9 @@ pub extern "C" fn _start() -> ! {
 
     usb::init();
     println!("[OK] USB initialized");
+
+    net::init();
+    println!("[OK] Network initialized");
 
     println!("\nWelcome to KACOS! Type 'help' for available commands.\n");
 

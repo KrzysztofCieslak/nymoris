@@ -37,13 +37,13 @@ $(ISO): $(KERNEL) limine.conf limine/limine-bios.sys limine/limine-bios-cd.bin l
 	./limine/limine bios-install $(ISO)
 
 run: iso
-	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -cpu qemu64,+sse,+sse2 -usb -device usb-kbd
+	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
 run-gui: iso
-	qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial stdio -cpu qemu64,+sse,+sse2 -usb -device usb-kbd
+	qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial stdio -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
 run-debug: iso
-	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -d int -usb -device usb-kbd
+	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -d int -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO)

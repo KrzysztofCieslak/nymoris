@@ -1,5 +1,23 @@
 use crate::println;
 
+/// Convert a kernel virtual address to a physical address using Limine's
+/// ExecutableAddressResponse. The kernel is loaded at a higher-half virtual
+/// address but the physical load address is chosen by Limine at boot time.
+pub fn virt_to_phys(virt: u64) -> u64 {
+    let exec_addr = crate::boot::EXEC_ADDRESS_REQUEST.response();
+    match exec_addr {
+        Some(resp) => {
+            let vbase = resp.virtual_base;
+            let pbase = resp.physical_base;
+            virt - vbase + pbase
+        }
+        None => {
+            // Fallback to legacy assumption
+            virt - 0xffffffff80000000 + 0x100000
+        }
+    }
+}
+
 pub fn print_memmap() {
     println!("Memory map information:");
 

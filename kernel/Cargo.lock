@@ -24,11 +24,13 @@ checksum = "413d67b29ef1021b4d60f4aa1e925ca031751e213832b4b1d588fae623c05c60"
 name = "kacos"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "lazy_static",
  "limine",
  "pc-keyboard",
  "pic8259",
  "spin",
+ "uuid",
  "volatile",
  "x86_64",
 ]
@@ -92,6 +94,12 @@ checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 dependencies = [
  "lock_api",
 ]
+
+[[package]]
+name = "uuid"
+version = "1.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 
 [[package]]
 name = "volatile"
