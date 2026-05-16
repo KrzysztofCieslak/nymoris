@@ -1,3 +1,23 @@
+# Build artifacts
 /build/
 *.iso
 kernel/target/
+
+# macOS
+.DS_Store
+
+# Logs and temp files
+*.log
+boot*.log
+boot_raw.txt
+screen.ppm
+test.hdd
+
+# Backups
+*.bak
+
+# Binaries
+kacos_stripped
+
+# Archives
+*.tar.gz

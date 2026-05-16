@@ -1,6 +1,0 @@
-timeout: 5
-graphics: no
-
-/KACOS
-    protocol: limine
-    kernel_path: boot():/kacos
