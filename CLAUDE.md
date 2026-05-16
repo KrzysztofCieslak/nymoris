@@ -145,6 +145,26 @@ COM1 (0x3F8) is initialized in `_start()` at 9600 baud, 8N1. Serial output is us
 - Kernel panic messages
 - Dual output alongside framebuffer
 
+## Git Workflow
+
+This repository is tracked in Git and pushed to GitHub:
+- **Remote**: `git@github.com:KrzysztofCieslak/KACOS.git`
+- **Default branch**: `main`
+
+**Always push changes to GitHub after making edits:**
+
+```bash
+git add -A
+git commit -m "Describe the change"
+git push origin main
+```
+
+If the remote has changes you don't have locally, pull first:
+```bash
+git pull origin main
+git push origin main
+```
+
 ## Important Implementation Notes
 
 - **Static mutable variables** are used extensively for hardware descriptors (TDs, QHs, frame lists). These are in `unsafe` blocks. Always use `write_volatile` and `read_volatile` when accessing them from Rust to prevent compiler optimizations.
