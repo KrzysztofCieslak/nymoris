@@ -32,7 +32,7 @@ fn cmd_help() {
     println!("  reboot   - Reboot the computer");
     println!("  halt     - Halt the CPU");
     println!("  meminfo  - Show memory map information");
-    println!("  about    - About KACOS");
+    println!("  about    - About Nymoris");
     println!("  panic    - Trigger a kernel panic (for testing)");
     println!("  ping     - Ping a remote host (e.g., ping 10.0.2.2)");
 }
@@ -65,7 +65,7 @@ fn cmd_meminfo() {
 
 fn cmd_about() {
     println!("==============================");
-    println!(" KACOS - Krzysztof's Amateur");
+    println!(" Nymoris - Agentic AI Operating System");
     println!("        Computer OS");
     println!("==============================");
     println!("Version: 0.1.0");

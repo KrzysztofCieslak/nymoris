@@ -1,10 +1,10 @@
-# KACOS — Agentic AI Operating System
+# Nymoris — Agentic AI Operating System
 
-KACOS is a minimal x86_64 operating system written in Rust, designed from the ground up to host and run autonomous AI agents. It boots on bare metal via the Limine bootloader and runs on both QEMU and real hardware (MacBook Pro 2010 and similar x86_64 machines).
+Nymoris is a minimal x86_64 operating system written in Rust, designed from the ground up to host and run autonomous AI agents. It boots on bare metal via the Limine bootloader and runs on both QEMU and real hardware (MacBook Pro 2010 and similar x86_64 machines).
 
 ## Vision
 
-KACOS is not just another hobby OS. It is being built as a dedicated runtime for agentic AI — software that perceives, decides, and acts on behalf of users. The system provides:
+Nymoris is not just another hobby OS. It is being built as a dedicated runtime for agentic AI — software that perceives, decides, and acts on behalf of users. The system provides:
 
 - Direct hardware control for deterministic agent execution
 - A minimal, auditable attack surface
@@ -14,7 +14,7 @@ KACOS is not just another hobby OS. It is being built as a dedicated runtime for
 
 ## Current Status
 
-KACOS is in active development. Current capabilities:
+Nymoris is in active development. Current capabilities:
 
 - [x] Boots via Limine bootloader on x86_64
 - [x] Framebuffer text output with 8x16 bitmap font
@@ -95,7 +95,7 @@ The shell reads from multiple sources in priority order:
 ### Project Structure
 
 ```
-kacos/
+nymoris/
 ├── kernel/
 │   ├── src/
 │   │   ├── main.rs          # Entry point
@@ -122,7 +122,7 @@ kacos/
 │   │       ├── ip.rs
 │   │       └── icmp.rs
 │   ├── Cargo.toml
-│   └── x86_64-kacos.json    # Custom Rust target
+│   └── x86_64-nymoris.json    # Custom Rust target
 ├── limine/                  # Bootloader binaries
 ├── linker.ld                # Linker script
 ├── limine.conf              # Bootloader config
@@ -132,7 +132,7 @@ kacos/
 
 ## Security
 
-KACOS is designed with security as a core principle:
+Nymoris is designed with security as a core principle:
 
 - **No `alloc` in kernel** (for now) — prevents heap-based attacks
 - **Volatile memory access** for all hardware descriptors — prevents compiler optimization bugs

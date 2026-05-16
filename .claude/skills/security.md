@@ -1,6 +1,6 @@
 # Security Skill
 
-This skill governs all security practices when writing or modifying KACOS kernel code.
+This skill governs all security practices when writing or modifying Nymoris kernel code.
 
 ## Before Writing Any Code
 

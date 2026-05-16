@@ -2,8 +2,8 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use kacos::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net};
-use kacos::println;
+use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net};
+use nymoris::println;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -71,14 +71,14 @@ pub extern "C" fn _start() -> ! {
         outb(0x3F8 + 2, 0xC7);
         outb(0x3F8 + 4, 0x0B);
 
-        for b in b"KACOS kernel _start() reached!\n" {
+        for b in b"Nymoris kernel _start() reached!\n" {
             outb(0x3F8, *b);
         }
     }
 
     framebuffer::init();
 
-    println!("KACOS v0.1 booting...");
+    println!("Nymoris v0.1 booting...");
     println!("============================");
 
     idt::init();
@@ -98,7 +98,7 @@ pub extern "C" fn _start() -> ! {
     net::init();
     println!("[OK] Network initialized");
 
-    println!("\nWelcome to KACOS! Type 'help' for available commands.\n");
+    println!("\nWelcome to Nymoris! Type 'help' for available commands.\n");
 
     shell::run();
 }

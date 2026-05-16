@@ -1,6 +1,6 @@
 # Testing Skill
 
-This skill ensures all KACOS kernel changes are verified before completion.
+This skill ensures all Nymoris kernel changes are verified before completion.
 
 ## Build Verification
 

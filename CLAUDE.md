@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KACOS is a minimal x86_64 hobby OS written in Rust (`no_std`), targeting bare metal. It boots via the Limine bootloader and runs on both QEMU and real hardware (MacBook Pro 2010 and similar x86_64 machines).
+Nymoris is a minimal x86_64 hobby OS written in Rust (`no_std`), targeting bare metal. It boots via the Limine bootloader and runs on both QEMU and real hardware (MacBook Pro 2010 and similar x86_64 machines).
 
 ## Build System
 
@@ -42,10 +42,10 @@ cd kernel
 RUSTFLAGS="-C link-arg=-T../linker.ld" cargo +nightly build \
   -Zbuild-std=core,compiler_builtins \
   -Zbuild-std-features=compiler-builtins-mem \
-  -Zjson-target-spec --target x86_64-kacos.json --release
+  -Zjson-target-spec --target x86_64-nymoris.json --release
 ```
 
-The kernel binary is produced at `kernel/target/x86_64-kacos/release/kacos`.
+The kernel binary is produced at `kernel/target/x86_64-nymoris/release/nymoris`.
 
 **Dependencies** (see `kernel/Cargo.toml`):
 - `limine` — Limine bootloader protocol
@@ -148,7 +148,7 @@ COM1 (0x3F8) is initialized in `_start()` at 9600 baud, 8N1. Serial output is us
 ## Git Workflow
 
 This repository is tracked in Git and pushed to GitHub:
-- **Remote**: `git@github.com:KrzysztofCieslak/KACOS.git`
+- **Remote**: `git@github.com:KrzysztofCieslak/Nymoris.git`
 - **Default branch**: `main`
 
 **Always push changes to GitHub after making edits:**

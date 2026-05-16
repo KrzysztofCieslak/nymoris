@@ -1,6 +1,6 @@
-# KACOS Security Practices
+# Nymoris Security Practices
 
-KACOS is designed with security as a foundational principle. As an operating system intended to host autonomous AI agents, a minimal and auditable codebase is essential.
+Nymoris is designed with security as a foundational principle. As an operating system intended to host autonomous AI agents, a minimal and auditable codebase is essential.
 
 ## Core Principles
 

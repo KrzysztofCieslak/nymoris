@@ -1,6 +1,6 @@
 # Documentation Skill
 
-This skill ensures KACOS documentation is maintained alongside code changes.
+This skill ensures Nymoris documentation is maintained alongside code changes.
 
 ## Documentation Requirement
 
