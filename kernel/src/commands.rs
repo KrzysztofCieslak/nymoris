@@ -1,4 +1,4 @@
-use crate::{interrupts, memory, println, print, framebuffer, net};
+use crate::{interrupts, memory, println, print, framebuffer, net, agent};
 
 pub fn execute(line: &str) {
     let line = line.trim();
@@ -22,6 +22,7 @@ pub fn execute(line: &str) {
         "ping" => cmd_ping(args),
         "httpget" => cmd_httpget(args),
         "httptest" => cmd_httptest(),
+        "agent" => cmd_agent(args),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -39,6 +40,7 @@ fn cmd_help() {
     println!("  ping     - Ping a remote host (e.g., ping 10.0.2.2)");
     println!("  httpget  - HTTP GET request (e.g., httpget 10.0.2.2 80 /)");
     println!("  httptest - HTTP GET to example.com via gateway");
+    println!("  agent    - Agent control: agent start | agent stop | agent status");
 }
 
 fn cmd_echo(args: &str) {
@@ -225,5 +227,23 @@ fn parse_port(s: &str) -> Option<u16> {
         Some(port)
     } else {
         None
+    }
+}
+
+fn cmd_agent(args: &str) {
+    let action = args.trim();
+    match action {
+        "start" => agent::start(),
+        "stop" => agent::stop(),
+        "status" => {
+            if agent::is_running() {
+                println!("[AGENT] Running, state: {:?}", agent::get_state());
+            } else {
+                println!("[AGENT] Stopped");
+            }
+        }
+        _ => {
+            println!("Usage: agent start | agent stop | agent status");
+        }
     }
 }

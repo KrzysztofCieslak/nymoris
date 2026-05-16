@@ -12,3 +12,4 @@ pub mod pci;
 pub mod shell;
 pub mod usb;
 pub mod framebuffer;
+pub mod agent;

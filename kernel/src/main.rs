@@ -98,6 +98,8 @@ pub extern "C" fn _start() -> ! {
     net::init();
     println!("[OK] Network initialized");
 
+    agent::init();
+
     println!("\nWelcome to Nymoris! Type 'help' for available commands.\n");
 
     shell::run();
