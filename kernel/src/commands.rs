@@ -20,6 +20,8 @@ pub fn execute(line: &str) {
         "about" => cmd_about(),
         "panic" => cmd_panic(),
         "ping" => cmd_ping(args),
+        "httpget" => cmd_httpget(args),
+        "httptest" => cmd_httptest(),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -35,6 +37,8 @@ fn cmd_help() {
     println!("  about    - About Nymoris");
     println!("  panic    - Trigger a kernel panic (for testing)");
     println!("  ping     - Ping a remote host (e.g., ping 10.0.2.2)");
+    println!("  httpget  - HTTP GET request (e.g., httpget 10.0.2.2 80 /)");
+    println!("  httptest - HTTP GET to example.com via gateway");
 }
 
 fn cmd_echo(args: &str) {
@@ -140,5 +144,86 @@ fn cmd_ping(args: &str) {
 
     if net::icmp::is_pending() {
         println!("[PING] Request timed out");
+    }
+}
+
+fn cmd_httpget(args: &str) {
+    let parts: &str = args.trim();
+    if parts.is_empty() {
+        println!("Usage: httpget <ip> <port> <path>");
+        println!("Example: httpget 10.0.2.2 80 /");
+        return;
+    }
+
+    // Simple parsing: ip port path
+    let mut tokens = parts.split_whitespace();
+    let ip = tokens.next().unwrap_or("");
+    let port_str = tokens.next().unwrap_or("80");
+    let path = tokens.next().unwrap_or("/");
+
+    let port = match parse_port(port_str) {
+        Some(p) => p,
+        None => {
+            println!("Invalid port");
+            return;
+        }
+    };
+
+    // Resolve gateway MAC first if needed
+    if !net::arp::is_gateway_mac_resolved() {
+        net::arp::send_arp_request(&net::arp::get_gateway_ip());
+        for _ in 0..10000 {
+            net::poll();
+            if net::arp::is_gateway_mac_resolved() {
+                break;
+            }
+        }
+    }
+
+    if !net::arp::is_gateway_mac_resolved() {
+        println!("[HTTP] Gateway MAC not resolved");
+        return;
+    }
+
+    net::http::http_get(ip, port, path);
+}
+
+fn cmd_httptest() {
+    // Test HTTP GET to QEMU's built-in gateway (10.0.2.2) on port 80
+    // In QEMU user networking, 10.0.2.2 is the host machine
+    println!("[HTTP] Testing HTTP GET to 10.0.2.2:80...");
+
+    // Resolve gateway MAC first if needed
+    if !net::arp::is_gateway_mac_resolved() {
+        net::arp::send_arp_request(&net::arp::get_gateway_ip());
+        for _ in 0..10000 {
+            net::poll();
+            if net::arp::is_gateway_mac_resolved() {
+                break;
+            }
+        }
+    }
+
+    if !net::arp::is_gateway_mac_resolved() {
+        println!("[HTTP] Gateway MAC not resolved");
+        return;
+    }
+
+    net::http::http_get("10.0.2.2", 80, "/");
+}
+
+fn parse_port(s: &str) -> Option<u16> {
+    let mut port = 0u16;
+    for b in s.bytes() {
+        if b >= b'0' && b <= b'9' {
+            port = port * 10 + (b - b'0') as u16;
+        } else {
+            return None;
+        }
+    }
+    if port > 0 && port <= 65535 {
+        Some(port)
+    } else {
+        None
     }
 }

@@ -1,7 +1,9 @@
 pub mod arp;
 pub mod ethernet;
+pub mod http;
 pub mod icmp;
 pub mod ip;
+pub mod tcp;
 pub mod virtio;
 
 use crate::println;

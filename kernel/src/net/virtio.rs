@@ -602,11 +602,9 @@ pub fn receive_packet(buffer: &mut [u8]) -> Option<usize> {
             None => return None,
         };
 
-        // Check used ring
-        let used_idx = RX_QUEUE.used.idx;
-        let last_used = RX_QUEUE.avail.flags; // Hack: reuse flags as last_used tracker
+        // Check used ring with volatile read (device writes via DMA)
+        let used_idx = core::ptr::read_volatile(core::ptr::addr_of!(RX_QUEUE.used.idx));
 
-        // Actually, let's track last_used separately
         static mut LAST_USED_IDX: u16 = 0;
 
         if LAST_USED_IDX == used_idx {

@@ -1,6 +1,7 @@
 use crate::net::ethernet::{build_frame, ETHERTYPE_IP};
 use crate::net::arp;
 use crate::net::virtio;
+use crate::net::tcp;
 
 pub const PROTOCOL_ICMP: u8 = 1;
 pub const PROTOCOL_TCP: u8 = 6;
@@ -133,7 +134,7 @@ pub fn handle_ip_packet(frame: &crate::net::ethernet::EthernetFrame) {
             crate::net::icmp::handle_icmp_packet(&packet);
         }
         PROTOCOL_TCP => {
-            // TCP not yet implemented
+            tcp::handle_tcp_packet(&packet.src_ip, &packet.dst_ip, packet.payload);
         }
         PROTOCOL_UDP => {
             // UDP not yet implemented
