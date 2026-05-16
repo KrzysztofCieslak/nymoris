@@ -148,7 +148,7 @@ COM1 (0x3F8) is initialized in `_start()` at 9600 baud, 8N1. Serial output is us
 ## Git Workflow
 
 This repository is tracked in Git and pushed to GitHub:
-- **Remote**: `git@github.com:KrzysztofCieslak/Nymoris.git`
+- **Remote**: `git@github.com:KrzysztofCieslak/nymoris.git`
 - **Default branch**: `main`
 
 **Always push changes to GitHub after making edits:**
