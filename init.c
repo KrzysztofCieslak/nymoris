@@ -20,6 +20,10 @@
 #define SYS_execve   59
 #define SYS_kill     62
 #define SYS_uname    63
+#define SYS_gettimeofday 96
+#define SYS_getuid   102
+#define SYS_getgid   104
+#define SYS_statfs   137
 #define SYS_getcwd   79
 #define SYS_rename   82
 #define SYS_unlink   87
@@ -253,6 +257,50 @@ static int sys_uname(void *buf) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_uname), "D"(buf)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_getuid(void) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_getuid)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_getgid(void) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_getgid)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_gettimeofday(void *tv, void *tz) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_gettimeofday), "D"(tv), "S"(tz)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_statfs(const char *path, void *buf) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_statfs), "D"(path), "S"(buf)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -659,6 +707,107 @@ static void print_uname(void) {
     print(buf.release); print(" ");
     print(buf.version); print(" ");
     printn(buf.machine);
+}
+
+static void print_date(void) {
+    struct { long sec; long usec; } tv;
+    if (sys_gettimeofday(&tv, NULL) < 0) {
+        printn("date: failed");
+        return;
+    }
+    // Simple conversion: seconds since 1970-01-01
+    // This is a rough approximation, good enough for basic usage
+    long t = tv.sec;
+    long days = t / 86400;
+    int year = 1970;
+    // Very rough year calculation (not accounting for leap years precisely)
+    while (days >= 365) {
+        int leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        if (days >= 365 + leap) {
+            days -= 365 + leap;
+            year++;
+        } else {
+            break;
+        }
+    }
+    int month_days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) month_days[1] = 29;
+    int month = 0;
+    while (month < 12 && days >= month_days[month]) {
+        days -= month_days[month];
+        month++;
+    }
+    int day = (int)days + 1;
+    int hour = (t % 86400) / 3600;
+    int min = (t % 3600) / 60;
+    int sec = t % 60;
+
+    print_int(year); print("-");
+    if (month + 1 < 10) print("0"); print_int(month + 1); print("-");
+    if (day < 10) print("0"); print_int(day); print(" ");
+    if (hour < 10) print("0"); print_int(hour); print(":");
+    if (min < 10) print("0"); print_int(min); print(":");
+    if (sec < 10) print("0"); print_int(sec); printn(" UTC");
+}
+
+static void print_df(void) {
+    struct {
+        long type;
+        long bsize;
+        long blocks;
+        long bfree;
+        long bavail;
+        long files;
+        long ffree;
+        long fsid;
+        long namelen;
+        long frsize;
+        long flags;
+        long spare[4];
+    } stat;
+    if (sys_statfs("/", &stat) < 0) {
+        printn("df: failed");
+        return;
+    }
+    long total = stat.blocks * stat.bsize / 1024;
+    long free = stat.bfree * stat.bsize / 1024;
+    long used = total - free;
+    print("Filesystem: /\nTotal: "); print_int((int)(total / 1024)); printn(" MB");
+    print("Used:  "); print_int((int)(used / 1024)); printn(" MB");
+    print("Free:  "); print_int((int)(free / 1024)); printn(" MB");
+}
+
+static void print_whoami(void) {
+    int uid = sys_getuid();
+    if (uid == 0) {
+        printn("root");
+    } else {
+        print_int(uid);
+        printn("");
+    }
+}
+
+static void print_id(void) {
+    int uid = sys_getuid();
+    int gid = sys_getgid();
+    print("uid="); print_int(uid); print(" gid="); print_int(gid); printn("");
+}
+
+static void print_hostname(void) {
+    int fd = sys_open("/proc/sys/kernel/hostname", 0, 0);
+    if (fd < 0) {
+        printn("hostname: failed");
+        return;
+    }
+    char buf[64];
+    int n = sys_read(fd, buf, sizeof(buf) - 1);
+    sys_close(fd);
+    if (n > 0) {
+        // Strip trailing newline
+        if (buf[n-1] == '\n') n--;
+        buf[n] = '\0';
+        printn(buf);
+    }
 }
 
 static int is_numeric(const char *s) {
@@ -1418,6 +1567,11 @@ static void shell_loop(void) {
             printn("  clear             Clear screen");
             printn("  uname             Show system info");
             printn("  history           Show command history");
+            printn("  date              Show date and time");
+            printn("  df                Show disk usage");
+            printn("  hostname          Show hostname");
+            printn("  whoami            Show current user");
+            printn("  id                Show user/group IDs");
             printn("  agent             Start AI agent loop");
             printn("  llm <m> <p>      Run local LLM inference");
             printn("  reboot            Reboot system");
@@ -1464,6 +1618,16 @@ static void shell_loop(void) {
             print_uname();
         } else if (strcmp_(linebuf, "history") == 0) {
             history_print();
+        } else if (strcmp_(linebuf, "date") == 0) {
+            print_date();
+        } else if (strcmp_(linebuf, "df") == 0) {
+            print_df();
+        } else if (strcmp_(linebuf, "hostname") == 0) {
+            print_hostname();
+        } else if (strcmp_(linebuf, "whoami") == 0) {
+            print_whoami();
+        } else if (strcmp_(linebuf, "id") == 0) {
+            print_id();
         } else if (strcmp_(linebuf, "reboot") == 0) {
             do_reboot();
         } else if (strcmp_(linebuf, "exit") == 0 || strcmp_(linebuf, "quit") == 0) {
