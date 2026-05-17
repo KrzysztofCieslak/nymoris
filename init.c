@@ -11,11 +11,16 @@
 #define SYS_dup2     33
 #define SYS_socket   41
 #define SYS_connect  42
+#define SYS_sendto   44
+#define SYS_recvfrom 45
 #define SYS_getdents64 217
 #define SYS_nanosleep 35
 #define SYS_wait4    61
 #define SYS_fork     57
 #define SYS_execve   59
+#define SYS_getcwd   79
+#define SYS_rename   82
+#define SYS_unlink   87
 
 typedef unsigned long size_t;
 typedef long ssize_t;
@@ -145,6 +150,34 @@ static int sys_connect(int fd, const void *addr, int len) {
     return ret;
 }
 
+static int sys_sendto(int fd, const void *buf, size_t len, int flags, const void *addr, int addr_len) {
+    int ret;
+    register int r10_ asm("r10") = flags;
+    register const void *r8_ asm("r8") = addr;
+    register int r9_ asm("r9") = addr_len;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_sendto), "D"(fd), "S"(buf), "d"(len), "r"(r10_), "r"(r8_), "r"(r9_)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_recvfrom(int fd, void *buf, size_t len, int flags, void *addr, int *addr_len) {
+    int ret;
+    register int r10_ asm("r10") = flags;
+    register void *r8_ asm("r8") = addr;
+    register int *r9_ asm("r9") = addr_len;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_recvfrom), "D"(fd), "S"(buf), "d"(len), "r"(r10_), "r"(r8_), "r"(r9_)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
 static int sys_getdents64(int fd, void *buf, int count) {
     int ret;
     asm volatile(
@@ -196,6 +229,39 @@ static int sys_execve(const char *path, char *const argv[], char *const envp[]) 
         "syscall"
         : "=a"(ret)
         : "a"(SYS_execve), "D"(path), "S"(argv), "d"(envp)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_unlink(const char *path) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_unlink), "D"(path)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_rename(const char *oldpath, const char *newpath) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_rename), "D"(oldpath), "S"(newpath)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_getcwd(char *buf, size_t size) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_getcwd), "D"(buf), "S"(size)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -349,6 +415,88 @@ static void do_poweroff(void) {
     sys_reboot(0xfee1dead, 672274793, 0x4321fedc, NULL);
 }
 
+static uint32_t dns_resolve(const char *host);
+
+static uint16_t icmp_checksum(const void *data, int len) {
+    const uint16_t *p = data;
+    uint32_t sum = 0;
+    while (len > 1) {
+        sum += *p++;
+        len -= 2;
+    }
+    if (len == 1) sum += *(const unsigned char *)p;
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return ~sum;
+}
+
+static void do_ping(const char *host) {
+    uint32_t ip = dns_resolve(host);
+    if (ip == 0) {
+        printn("ping: cannot resolve host");
+        return;
+    }
+
+    int fd = sys_socket(2, 3, 1); // AF_INET, SOCK_RAW, IPPROTO_ICMP
+    if (fd < 0) {
+        printn("ping: socket failed (need root)");
+        return;
+    }
+
+    struct {
+        uint16_t family;
+        uint16_t port;
+        uint32_t addr;
+        char pad[8];
+    } sa = {2, 0, ip, {0}};
+
+    // Build ICMP echo request
+    struct {
+        unsigned char type;
+        unsigned char code;
+        uint16_t checksum;
+        uint16_t id;
+        uint16_t seq;
+        uint64_t data;
+    } req = {8, 0, 0, 1, 0, 0x1234567890abcdefULL};
+    req.checksum = icmp_checksum(&req, sizeof(req));
+
+    int sent = sys_sendto(fd, &req, sizeof(req), 0, &sa, sizeof(sa));
+    if (sent < 0) {
+        printn("ping: sendto failed");
+        sys_close(fd);
+        return;
+    }
+
+    // Receive reply with timeout (using non-blocking + poll not available, just try once)
+    char resp[256];
+    int from_len = sizeof(sa);
+    int n = sys_recvfrom(fd, resp, sizeof(resp), 0, &sa, &from_len);
+    sys_close(fd);
+
+    if (n < 0) {
+        printn("ping: no reply");
+        return;
+    }
+
+    // Parse IP header (minimum 20 bytes) + ICMP
+    if (n < 28) {
+        printn("ping: reply too short");
+        return;
+    }
+
+    // IP header is first, ICMP starts at offset 20
+    unsigned char *icmp = (unsigned char *)resp + 20;
+    if (icmp[0] == 0 && icmp[1] == 0) {
+        print("ping: reply from ");
+        char ip_str[16];
+        ip_to_str(ip, ip_str);
+        print(ip_str);
+        printn(" ok");
+    } else {
+        printn("ping: unexpected reply type");
+    }
+}
+
 static uint32_t dns_resolve(const char *host) {
     // Simple hardcoded DNS for common hosts
     if (strcmp_(host, "10.0.2.2") == 0) return 0x0202000a;
@@ -407,6 +555,84 @@ static void do_http_get(const char *host, const char *path) {
         sys_write(1, buf, n);
     }
     sys_close(fd);
+}
+
+static void do_wget(const char *host, const char *path, const char *outfile) {
+    uint32_t ip = dns_resolve(host);
+    if (ip == 0) {
+        printn("wget: cannot resolve host");
+        return;
+    }
+
+    int fd = sys_socket(2, 1, 0); // AF_INET, SOCK_STREAM, 0
+    if (fd < 0) {
+        printn("wget: socket failed");
+        return;
+    }
+
+    struct {
+        uint16_t family;
+        uint16_t port;
+        uint32_t addr;
+        char pad[8];
+    } sa = {2, 0x5000, ip, {0}}; // port 80
+
+    if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
+        printn("wget: connect failed");
+        sys_close(fd);
+        return;
+    }
+
+    char req[512];
+    int len = 0;
+    const char *p = "GET ";
+    while (*p) req[len++] = *p++;
+    p = path;
+    while (*p) req[len++] = *p++;
+    p = " HTTP/1.1\r\nHost: ";
+    while (*p) req[len++] = *p++;
+    p = host;
+    while (*p) req[len++] = *p++;
+    p = "\r\nConnection: close\r\n\r\n";
+    while (*p) req[len++] = *p++;
+
+    sys_write(fd, req, len);
+
+    // Read full response into a buffer
+    char resp_buf[8192];
+    int total = 0;
+    char buf[256];
+    int n;
+    while ((n = sys_read(fd, buf, sizeof(buf))) > 0 && total + n < sizeof(resp_buf) - 1) {
+        for (int i = 0; i < n; i++) resp_buf[total++] = buf[i];
+    }
+    resp_buf[total] = '\0';
+    sys_close(fd);
+
+    // Find body after \r\n\r\n
+    int body_start = -1;
+    for (int i = 0; i < total - 3; i++) {
+        if (resp_buf[i] == '\r' && resp_buf[i+1] == '\n' && resp_buf[i+2] == '\r' && resp_buf[i+3] == '\n') {
+            body_start = i + 4;
+            break;
+        }
+    }
+    if (body_start < 0) {
+        printn("wget: no body in response");
+        return;
+    }
+
+    int outfd = sys_open(outfile, 0x241, 0644);
+    if (outfd < 0) {
+        printn("wget: cannot create output file");
+        return;
+    }
+    sys_write(outfd, resp_buf + body_start, total - body_start);
+    sys_close(outfd);
+    print("wget: saved ");
+    print_int(total - body_start);
+    print(" bytes to ");
+    printn(outfile);
 }
 
 static int do_http_post_body(const char *host, const char *path, const char *body, char *resp, int resp_max) {
@@ -744,6 +970,13 @@ static void shell_loop(void) {
             printn("  cat <file>        Show file contents");
             printn("  mkdir <dir>       Create directory");
             printn("  echo <text>       Print text");
+            printn("  pwd               Print working directory");
+            printn("  rm <file>         Remove file");
+            printn("  cp <src> <dst>    Copy file");
+            printn("  mv <src> <dst>    Move/rename file");
+            printn("  touch <file>      Create empty file");
+            printn("  ping <host>       Ping host");
+            printn("  wget <h> <p> <f>  Download file via HTTP");
             printn("  http <host> [p]   HTTP GET");
             printn("  sleep <secs>      Sleep");
             printn("  agent             Start AI agent loop");
@@ -766,6 +999,101 @@ static void shell_loop(void) {
         } else if (starts_with(linebuf, "mkdir ")) {
             if (sys_mkdir(linebuf + 6, 0755) < 0) {
                 printn("mkdir: failed");
+            }
+        } else if (strcmp_(linebuf, "pwd") == 0) {
+            char cwd[256];
+            if (sys_getcwd(cwd, sizeof(cwd)) >= 0) {
+                printn(cwd);
+            } else {
+                printn("pwd: failed");
+            }
+        } else if (starts_with(linebuf, "rm ")) {
+            if (sys_unlink(linebuf + 3) < 0) {
+                printn("rm: failed");
+            }
+        } else if (starts_with(linebuf, "cp ")) {
+            char *src = linebuf + 3;
+            char *dst = NULL;
+            for (int i = 3; linebuf[i]; i++) {
+                if (linebuf[i] == ' ') {
+                    linebuf[i] = '\0';
+                    dst = &linebuf[i + 1];
+                    break;
+                }
+            }
+            if (dst) {
+                int sfd = sys_open(src, 0, 0);
+                if (sfd < 0) {
+                    printn("cp: cannot open source");
+                } else {
+                    int dfd = sys_open(dst, 0x241, 0644);
+                    if (dfd < 0) {
+                        printn("cp: cannot create destination");
+                    } else {
+                        char buf[256];
+                        int n;
+                        while ((n = sys_read(sfd, buf, sizeof(buf))) > 0) {
+                            sys_write(dfd, buf, n);
+                        }
+                        sys_close(dfd);
+                    }
+                    sys_close(sfd);
+                }
+            } else {
+                printn("Usage: cp <src> <dst>");
+            }
+        } else if (starts_with(linebuf, "mv ")) {
+            char *src = linebuf + 3;
+            char *dst = NULL;
+            for (int i = 3; linebuf[i]; i++) {
+                if (linebuf[i] == ' ') {
+                    linebuf[i] = '\0';
+                    dst = &linebuf[i + 1];
+                    break;
+                }
+            }
+            if (dst) {
+                if (sys_rename(src, dst) < 0) {
+                    printn("mv: failed");
+                }
+            } else {
+                printn("Usage: mv <src> <dst>");
+            }
+        } else if (starts_with(linebuf, "touch ")) {
+            int fd = sys_open(linebuf + 6, 0x241, 0644);
+            if (fd < 0) {
+                printn("touch: failed");
+            } else {
+                sys_close(fd);
+            }
+        } else if (starts_with(linebuf, "ping ")) {
+            do_ping(linebuf + 5);
+        } else if (starts_with(linebuf, "wget ")) {
+            char *rest = linebuf + 5;
+            while (*rest == ' ') rest++;
+            char *host = rest;
+            char *path = NULL;
+            char *outfile = NULL;
+            for (int i = 0; rest[i]; i++) {
+                if (rest[i] == ' ') {
+                    rest[i] = '\0';
+                    path = &rest[i + 1];
+                    break;
+                }
+            }
+            if (path) {
+                for (int i = 0; path[i]; i++) {
+                    if (path[i] == ' ') {
+                        path[i] = '\0';
+                        outfile = &path[i + 1];
+                        break;
+                    }
+                }
+            }
+            if (host && path && outfile) {
+                do_wget(host, path, outfile);
+            } else {
+                printn("Usage: wget <host> <path> <output_file>");
             }
         } else if (starts_with(linebuf, "echo ")) {
             printn(linebuf + 5);
