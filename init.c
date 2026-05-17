@@ -372,6 +372,52 @@ static void ip_to_str(uint32_t ip, char *buf) {
 static char linebuf[1024];
 static int linepos = 0;
 
+#define HISTORY_SIZE 32
+#define HISTORY_LEN 256
+static char history[HISTORY_SIZE][HISTORY_LEN];
+static int history_count = 0;
+static int history_next = 0;
+
+static void history_add(const char *cmd) {
+    if (cmd[0] == '\0') return;
+    // Don't add if same as last command
+    if (history_count > 0) {
+        int last = (history_next - 1 + HISTORY_SIZE) % HISTORY_SIZE;
+        int same = 1;
+        for (int i = 0; i < HISTORY_LEN; i++) {
+            if (history[last][i] != cmd[i]) { same = 0; break; }
+            if (cmd[i] == '\0') break;
+        }
+        if (same) return;
+    }
+    int idx = history_next % HISTORY_SIZE;
+    int i = 0;
+    while (cmd[i] && i < HISTORY_LEN - 1) {
+        history[idx][i] = cmd[i];
+        i++;
+    }
+    history[idx][i] = '\0';
+    history_next++;
+    if (history_count < HISTORY_SIZE) history_count++;
+}
+
+static void history_print(void) {
+    int start = history_next - history_count;
+    for (int i = 0; i < history_count; i++) {
+        int idx = (start + i) % HISTORY_SIZE;
+        print_int(i + 1);
+        print("  ");
+        printn(history[idx]);
+    }
+}
+
+static const char* history_get(int n) {
+    if (n <= 0 || n > history_count) return NULL;
+    int start = history_next - history_count;
+    int idx = (start + n - 1) % HISTORY_SIZE;
+    return history[idx];
+}
+
 static void read_line(void) {
     linepos = 0;
     while (linepos < sizeof(linebuf) - 1) {
@@ -1314,6 +1360,37 @@ static void shell_loop(void) {
 
         if (linepos == 0) continue;
 
+        // Handle history expansion: !n or !!
+        if (linebuf[0] == '!') {
+            const char *prev = NULL;
+            if (linebuf[1] == '!') {
+                prev = history_get(history_count);
+            } else {
+                int n = 0;
+                char *p = linebuf + 1;
+                while (*p >= '0' && *p <= '9') {
+                    n = n * 10 + (*p - '0');
+                    p++;
+                }
+                prev = history_get(n);
+            }
+            if (prev) {
+                int i = 0;
+                while (prev[i] && i < sizeof(linebuf) - 1) {
+                    linebuf[i] = prev[i];
+                    i++;
+                }
+                linebuf[i] = '\0';
+                linepos = i;
+                printn(linebuf);
+            } else {
+                printn("history: no such command");
+                continue;
+            }
+        }
+
+        history_add(linebuf);
+
         if (strcmp_(linebuf, "help") == 0) {
             printn("Commands:");
             printn("  help              Show this help");
@@ -1340,6 +1417,7 @@ static void shell_loop(void) {
             printn("  uptime            Show system uptime");
             printn("  clear             Clear screen");
             printn("  uname             Show system info");
+            printn("  history           Show command history");
             printn("  agent             Start AI agent loop");
             printn("  llm <m> <p>      Run local LLM inference");
             printn("  reboot            Reboot system");
@@ -1384,6 +1462,8 @@ static void shell_loop(void) {
             do_clear();
         } else if (strcmp_(linebuf, "uname") == 0) {
             print_uname();
+        } else if (strcmp_(linebuf, "history") == 0) {
+            history_print();
         } else if (strcmp_(linebuf, "reboot") == 0) {
             do_reboot();
         } else if (strcmp_(linebuf, "exit") == 0 || strcmp_(linebuf, "quit") == 0) {
