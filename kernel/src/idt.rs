@@ -36,6 +36,10 @@ lazy_static! {
                 .set_handler_addr(VirtAddr::new(
                     crate::interrupts::keyboard_interrupt_stub as *const () as u64
                 ));
+            idt[crate::interrupts::InterruptIndex::Serial.as_u8()]
+                .set_handler_addr(VirtAddr::new(
+                    crate::interrupts::serial_interrupt_stub as *const () as u64
+                ));
             // Syscall via int 0x80 - DPL=3 so ring 3 can invoke it
             idt[0x80]
                 .set_handler_addr(VirtAddr::new(

@@ -20,6 +20,7 @@ pub mod scheduler;
 pub mod fs;
 pub mod elf;
 pub mod syscall;
+pub mod serial;
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {

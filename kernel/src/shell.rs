@@ -1,11 +1,11 @@
-use crate::{keyboard, println, print, commands, usb};
+use crate::{keyboard, println, print, commands, usb, serial};
 
 const MAX_LINE_LENGTH: usize = 256;
 
 static mut SHELL_BUFFER: [u8; MAX_LINE_LENGTH] = [0; MAX_LINE_LENGTH];
 
-/// Read a byte from COM1 serial port if data is available.
-fn serial_get_char() -> Option<char> {
+/// Poll COM1 directly for a character (fallback if interrupt buffer missed it).
+fn serial_poll_char() -> Option<char> {
     unsafe {
         let lsr: u8;
         core::arch::asm!(
@@ -14,7 +14,6 @@ fn serial_get_char() -> Option<char> {
             in("dx") 0x3FDu16,
             options(nomem, nostack)
         );
-        // Bit 0 of LSR = data ready
         if lsr & 0x01 != 0 {
             let data: u8;
             core::arch::asm!(
@@ -39,7 +38,8 @@ pub fn run() -> ! {
         let c = usb::hid::get_char()
             .or_else(|| usb::uhci::get_char())
             .or_else(|| keyboard::get_char())
-            .or_else(|| serial_get_char());
+            .or_else(|| serial::get_char())
+            .or_else(|| serial_poll_char());
 
         if let Some(c) = c {
             match c {

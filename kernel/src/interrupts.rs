@@ -10,6 +10,7 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard,
+    Serial = PIC_1_OFFSET + 4,
 }
 
 impl InterruptIndex {
@@ -34,6 +35,7 @@ pub unsafe fn init() {
     let slave_mask = 0xFF;
     master_mask &= !(1 << 0); // Unmask timer on master PIC
     master_mask &= !(1 << 1); // Unmask keyboard on master PIC
+    master_mask &= !(1 << 4); // Unmask serial (COM1) on master PIC
     pics.write_masks(master_mask, slave_mask);
     drop(pics);
     x86_64::instructions::interrupts::enable();
@@ -88,6 +90,7 @@ macro_rules! interrupt_stub {
 interrupt_stub!(breakpoint_stub, breakpoint_rust);
 interrupt_stub!(timer_interrupt_stub, timer_interrupt_rust);
 interrupt_stub!(keyboard_interrupt_stub, keyboard_interrupt_rust);
+interrupt_stub!(serial_interrupt_stub, serial_interrupt_rust);
 
 // Stubs for exceptions with error code (CPU pushes 32 bytes).
 // Error code is at [rsp+72] after our 9 pushes; pass it in RDI.
@@ -161,6 +164,7 @@ extern "C" {
     pub fn breakpoint_stub();
     pub fn timer_interrupt_stub();
     pub fn keyboard_interrupt_stub();
+    pub fn serial_interrupt_stub();
     pub fn double_fault_stub();
     pub fn page_fault_stub();
     pub fn gpf_stub();
@@ -202,6 +206,24 @@ pub extern "C" fn keyboard_interrupt_rust() {
 
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn serial_interrupt_rust() {
+    unsafe {
+        let mut iir_port = x86_64::instructions::port::Port::new(0x3F8 + 2);
+        let iir: u8 = iir_port.read();
+        // IIR bit 0 = 0 means interrupt pending; bits [2:1] = interrupt type
+        // Type 2 (bits [2:1] = 10) = receiver data available
+        // Type 4 (bits [2:1] = 11) = receiver line status
+        if iir & 0x01 == 0 {
+            let mut data_port = x86_64::instructions::port::Port::new(0x3F8);
+            let data: u8 = data_port.read();
+            crate::serial::push_char(data as char);
+        }
+        PICS.lock()
+            .notify_end_of_interrupt(InterruptIndex::Serial.as_u8());
     }
 }
 

@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent, scheduler, fs, elf, commands};
+use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent, scheduler, fs, elf, commands, serial};
 use nymoris::println;
 
 #[panic_handler]
@@ -68,7 +68,7 @@ pub extern "C" fn _start() -> ! {
         outb(0x3F8 + 0, 0x03);
         outb(0x3F8 + 1, 0x00);
         outb(0x3F8 + 3, 0x03);
-        outb(0x3F8 + 2, 0xC7);
+        outb(0x3F8 + 2, 0x07); // FCR: enable FIFOs, 1-byte trigger level
         outb(0x3F8 + 4, 0x0B);
 
         for b in b"Nymoris kernel _start() reached!\n" {
@@ -92,6 +92,9 @@ pub extern "C" fn _start() -> ! {
 
     keyboard::init();
     println!("[OK] Keyboard initialized");
+
+    serial::init();
+    println!("[OK] Serial interrupts enabled");
 
     memory::print_memmap();
     unsafe { memory::allocator::init(); }
@@ -118,9 +121,6 @@ pub extern "C" fn _start() -> ! {
     agent::start();
 
     println!("\nWelcome to Nymoris! Type 'help' for available commands.\n");
-
-    // Temporary auto-test of userspace
-    commands::execute("run hello");
 
     shell::run();
 }
