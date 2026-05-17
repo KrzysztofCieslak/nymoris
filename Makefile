@@ -7,7 +7,7 @@ ISO_DIR := $(BUILD_DIR)/iso
 
 RUSTFLAGS := -C link-arg=-T../$(LINKER_SCRIPT)
 CARGO := $(HOME)/.cargo/bin/cargo +nightly
-CARGO_BUILD_FLAGS := -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem -Zjson-target-spec --target x86_64-nymoris.json --release
+CARGO_BUILD_FLAGS := -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem -Zjson-target-spec --target x86_64-nymoris.json --release
 
 .PHONY: all iso run clean
 

@@ -24,6 +24,7 @@ pub fn execute(line: &str) {
         "httptest" => cmd_httptest(),
         "agent" => cmd_agent(args),
         "alloctest" => cmd_alloctest(),
+        "heaptest" => cmd_heaptest(),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -43,6 +44,7 @@ fn cmd_help() {
     println!("  httptest - HTTP GET to example.com via gateway");
     println!("  agent    - Agent control: agent start | agent stop | agent status");
     println!("  alloctest - Test page frame allocator");
+    println!("  heaptest  - Test kernel heap allocator");
 }
 
 fn cmd_echo(args: &str) {
@@ -248,6 +250,37 @@ fn cmd_agent(args: &str) {
             println!("Usage: agent start | agent stop | agent status");
         }
     }
+}
+
+fn cmd_heaptest() {
+    println!("[HEAPTEST] Testing kernel heap allocator...");
+
+    use alloc::vec::Vec;
+    use alloc::string::String;
+
+    // Test 1: Vec allocation
+    {
+        let mut v = Vec::new();
+        for i in 0..10 {
+            v.push(i * i);
+        }
+        println!("[HEAPTEST] Vec: {:?}", v);
+    }
+
+    // Test 2: String allocation
+    {
+        let mut s = String::from("Hello from ");
+        s.push_str("the heap!");
+        println!("[HEAPTEST] String: {}", s);
+    }
+
+    // Test 3: Box
+    {
+        let b = alloc::boxed::Box::new(42);
+        println!("[HEAPTEST] Box: {}", *b);
+    }
+
+    println!("[HEAPTEST] PASS: all heap allocations succeeded");
 }
 
 fn cmd_alloctest() {

@@ -92,6 +92,7 @@ pub extern "C" fn _start() -> ! {
 
     memory::print_memmap();
     unsafe { memory::allocator::init(); }
+    unsafe { memory::heap::HEAP.init(); }
 
     usb::init();
     println!("[OK] USB initialized");

@@ -40,6 +40,9 @@ pub unsafe fn init() {
         }
     }
 
+    // Reset USED_PAGES since all pages above are free, not used
+    USED_PAGES = 0;
+
     println!("[ALLOC] Page frame allocator initialized: {} pages ({} MB) free",
         TOTAL_PAGES, (TOTAL_PAGES * PAGE_SIZE) / (1024 * 1024));
 }

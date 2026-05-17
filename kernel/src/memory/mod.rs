@@ -1,4 +1,5 @@
 pub mod allocator;
+pub mod heap;
 
 use crate::println;
 
