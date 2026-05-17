@@ -1,23 +1,10 @@
 # Build artifacts
-/build/
-*.iso
-kernel/target/
+initramfs/
+initramfs.cpio.gz
+
+# Temporary files
+*.log
 
 # macOS
 .DS_Store
-
-# Logs and temp files
-*.log
-boot*.log
-boot_raw.txt
-screen.ppm
-test.hdd
-
-# Backups
-*.bak
-
-# Binaries
-kacos_stripped
-
-# Archives
-*.tar.gz
+agent/target/

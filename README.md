@@ -1,183 +1,153 @@
-# Nymoris — Agentic AI Operating System
+# KACOS — Agentic AI Operating System
 
-Nymoris is a minimal x86_64 operating system written in Rust, designed from the ground up to host and run autonomous AI agents. It boots on bare metal via the Limine bootloader and runs on both QEMU and real hardware (MacBook Pro 2010 and similar x86_64 machines).
+KACOS (pronounced "kay-kos") is a minimal Linux-based operating system designed to host and run autonomous AI agents. It boots a Linux kernel with a custom initramfs containing a lightweight agent runtime.
 
 ## Vision
 
-Nymoris is not just another hobby OS. It is being built as a dedicated runtime for agentic AI — software that perceives, decides, and acts on behalf of users. The system provides:
+KACOS is built as a dedicated runtime for agentic AI — software that perceives, decides, and acts on behalf of users. Unlike a general-purpose Linux distribution, KACOS is purpose-built:
 
-- Direct hardware control for deterministic agent execution
-- A minimal, auditable attack surface
+- Minimal attack surface — only what's needed for agents
+- Direct control over the system environment
 - Network connectivity for remote AI APIs
-- Local LLM inference capabilities
-- A foundation for running agent frameworks like OpenClaw and Hermes
+- Extensible agent shell with tool-calling capabilities
+- Foundation for running agent frameworks
+
+## Architecture
+
+KACOS is built on the Linux kernel (Alpine LTS) with a custom initramfs:
+
+```
+Linux Kernel (Alpine LTS) → Custom Initramfs → kacos-init (PID 1)
+                                              → Agent Shell
+                                              → Built-in tools
+```
+
+The init program (`init.c`) is a minimal C program using raw Linux syscalls — no libc dependency. It runs as PID 1 and provides an interactive shell for agent operations.
 
 ## Current Status
 
-Nymoris is in active development. Current capabilities:
-
-- [x] Boots via Limine bootloader on x86_64
-- [x] Framebuffer text output with 8x16 bitmap font
-- [x] Interrupt handling (timer, keyboard) via raw assembly stubs
-- [x] PS/2 and USB HID keyboard input
-- [x] Interactive shell with built-in commands
-- [x] PCI bus scanning
-- [x] VirtIO-net driver with network stack (ARP, IP, ICMP)
-- [x] `ping` command
-- [ ] TCP/HTTP stack
-- [ ] Agent runtime
-- [ ] Userspace / ELF loader
+- [x] Boots Linux kernel + custom initramfs in QEMU
+- [x] Interactive agent shell with built-in commands
+- [x] Basic filesystem operations (cat, ls, mkdir)
+- [x] HTTP client via raw sockets
+- [x] System control (reboot, poweroff)
+- [ ] TCP networking stack
+- [ ] Agent loop with AI API integration
 - [ ] Local LLM inference
 
 ## Quick Start
 
 ### Prerequisites
 
-- `rustup` with nightly toolchain
-- `llvm-tools-preview` rustup component
-- `xorriso` (for ISO creation)
 - `qemu` (for testing)
+- `x86_64-elf-gcc` (for compiling init):
+  ```bash
+  brew install x86_64-elf-gcc
+  ```
+- `cpio` (for initramfs creation — usually preinstalled)
 
 ### Build and Run
 
 ```bash
-# Build kernel + ISO
-make iso
-
-# Run in QEMU with GUI window and network
-make run-gui
-
-# Run in QEMU with serial console only
+# Build initramfs + run in QEMU with serial console
 make run
+
+# Run in QEMU with GUI window
+make run-gui
 
 # Clean build artifacts
 make clean
 ```
 
-In the QEMU window, type `help` to see available commands.
+In the serial console, type `help` to see available commands.
 
-## Architecture
+### Manual Build
 
-### Memory Layout
+```bash
+# Compile init program
+x86_64-elf-gcc -nostdlib -static -O2 -o /tmp/kacos-init init.c
 
-Higher-half kernel at virtual address `0xffffffff80000000`. Physical load address is determined at runtime by Limine — never hardcode `0x100000`.
+# Create initramfs
+mkdir -p initramfs/{dev,proc,sys,tmp,bin}
+cp /tmp/kacos-init initramfs/init
+chmod +x initramfs/init
+cd initramfs && find . | cpio -o -H newc | gzip > ../initramfs.cpio.gz
+
+# Boot in QEMU
+qemu-system-x86_64 -kernel vmlinuz -initrd initramfs.cpio.gz \
+  -m 512M -nographic -append "console=ttyS0 panic=1"
+```
+
+## Project Structure
+
+```
+kacos/
+├── vmlinuz              # Linux kernel (Alpine LTS)
+├── initramfs.cpio.gz    # Gzipped cpio initramfs
+├── init.c               # Custom init program (PID 1)
+├── agent/               # Rust agent program (experimental)
+├── Makefile             # Build automation
+└── CLAUDE.md            # Developer guidance
+```
 
 ### Boot Sequence
 
-1. Limine loads kernel and provides framebuffer, memory map, and executable address
-2. Custom 128KB stack setup
-3. SSE enable for compiler auto-vectorization
-4. COM1 serial port init (9600 baud, 8N1)
-5. Framebuffer text output init
-6. IDT and PIC initialization
-7. USB controller scan and keyboard init
-8. Network device init (VirtIO-net)
-9. Interactive shell
+1. Linux kernel boots and mounts the initramfs
+2. Kernel executes `/init` as PID 1
+3. `init` opens `/dev/console` for stdin/stdout/stderr
+4. `init` mounts proc, sysfs, devtmpfs, tmpfs
+5. Interactive agent shell starts
 
-### Network Stack
+### Agent Shell Commands
 
-The network stack is kernel-embedded for the MVP:
+| Command | Description |
+|---------|-------------|
+| `help` | Show available commands |
+| `cat <file>` | Display file contents |
+| `ps` | List processes |
+| `http` | HTTP GET to QEMU gateway |
+| `reboot` | Reboot the system |
+| `exit` | Power off |
 
-- **VirtIO-net PCI driver** (`kernel/src/net/virtio.rs`) — QEMU device detection, queue management, TX/RX
-- **Ethernet** (`kernel/src/net/ethernet.rs`) — framing and parsing
-- **ARP** (`kernel/src/net/arp.rs`) — MAC address resolution
-- **IPv4** (`kernel/src/net/ip.rs`) — packet construction and routing
-- **ICMP** (`kernel/src/net/icmp.rs`) — ping support
-- **TCP/HTTP** — in development
+## Why Linux?
 
-### Keyboard Input Chain
+KACOS was previously built as a custom kernel ("Nymoris") from scratch. While educational, that approach required years of work to achieve basic functionality. By building on Linux:
 
-The shell reads from multiple sources in priority order:
-1. USB HID keyboard (EHCI/UHCI)
-2. PS/2 keyboard
-3. COM1 serial input
+- **Proven hardware support** — drivers for virtually all x86_64 hardware
+- **Network stack** — TCP/IP, routing, firewalling
+- **Security** — mature security model, namespaces, cgroups
+- **Focus** — we can build the agent layer instead of kernel infrastructure
 
-### Project Structure
-
-```
-nymoris/
-├── kernel/
-│   ├── src/
-│   │   ├── main.rs          # Entry point
-│   │   ├── lib.rs           # Module declarations
-│   │   ├── boot.rs          # Limine requests
-│   │   ├── framebuffer.rs   # Framebuffer + serial output
-│   │   ├── interrupts.rs    # PIC + interrupt stubs
-│   │   ├── idt.rs           # Interrupt descriptor table
-│   │   ├── keyboard.rs      # PS/2 keyboard driver
-│   │   ├── memory.rs        # Memory map + virt_to_phys
-│   │   ├── pci.rs           # PCI bus scanner
-│   │   ├── shell.rs         # Command interpreter
-│   │   ├── commands.rs      # Built-in commands
-│   │   ├── usb/             # USB stack
-│   │   │   ├── mod.rs
-│   │   │   ├── ehci.rs
-│   │   │   ├── uhci.rs
-│   │   │   └── hid.rs
-│   │   └── net/             # Network stack
-│   │       ├── mod.rs
-│   │       ├── virtio.rs
-│   │       ├── ethernet.rs
-│   │       ├── arp.rs
-│   │       ├── ip.rs
-│   │       └── icmp.rs
-│   ├── Cargo.toml
-│   └── x86_64-nymoris.json    # Custom Rust target
-├── limine/                  # Bootloader binaries
-├── linker.ld                # Linker script
-├── limine.conf              # Bootloader config
-├── Makefile
-└── CLAUDE.md                # Developer guidance for Claude Code
-```
-
-## Security
-
-Nymoris is designed with security as a core principle:
-
-- **No `alloc` in kernel** (for now) — prevents heap-based attacks
-- **Volatile memory access** for all hardware descriptors — prevents compiler optimization bugs
-- **Assembly interrupt stubs** — avoids SSE alignment crashes from `extern "x86-interrupt"`
-- **Minimal attack surface** — only necessary drivers and protocols
-
-See `SECURITY.md` for detailed security practices.
+The custom initramfs approach keeps the system minimal and purpose-built while leveraging Linux's robust foundation.
 
 ## Roadmap
 
 ### Phase 1: Agent MVP (Weeks)
-- [x] VirtIO-net driver
-- [x] Ethernet, ARP, IP, ICMP
-- [ ] TCP + HTTP client
-- [ ] JSON parser
-- [ ] Kernel-space agent loop calling remote AI APIs
+- [x] Linux kernel + custom initramfs boot
+- [x] Minimal init with shell
+- [ ] TCP networking
+- [ ] HTTP client with JSON parsing
+- [ ] Agent loop calling remote AI APIs
 
-### Phase 2: Userspace Foundation (Months)
-- [ ] Physical page allocator
-- [ ] Kernel heap + `alloc` crate
-- [ ] Paging / virtual memory
-- [ ] Process scheduler + context switching
-- [ ] System calls (`int 0x80`)
-- [ ] ELF loader
-- [ ] Ramdisk filesystem
+### Phase 2: Advanced Agent (Months)
+- [ ] File system persistence
+- [ ] Multi-process agent runtime
+- [ ] Local LLM inference (GGUF)
+- [ ] Container-style isolation
 
-### Phase 3: Local Inference (Months)
-- [ ] GGUF model loader
-- [ ] Transformer inference engine
-- [ ] BPE tokenizer
-- [ ] TinyLlama 1.1B support
+### Phase 3: Production (Months)
+- [ ] Full agent framework support
+- [ ] Package manager
+- [ ] Real hardware deployment
+- [ ] Distributed agent clusters
 
-### Phase 4: Real Agent Frameworks (Months → Years)
-- [ ] musl libc port
-- [ ] MicroPython / QuickJS runtime
-- [ ] FAT32 / ext2 filesystem
-- [ ] lwIP TCP/IP stack
-- [ ] Package manager (`.kpkg`)
+## Security
+
+- Minimal initramfs — only essential binaries
+- No network services listening by default
+- Agent runs as root (intentional for full system control)
+- All operations auditable via shell history
 
 ## License
 
 MIT License — see `LICENSE` file.
-
-## Acknowledgments
-
-- [Limine](https://github.com/limine-bootloader/limine) bootloader
-- [OSDev Wiki](https://wiki.osdev.org/) for x86_64 architecture references
-- QEMU for excellent virtualization and debugging support
