@@ -1,4 +1,5 @@
-use crate::{interrupts, memory, println, print, framebuffer, net, agent, scheduler};
+use crate::{interrupts, memory, println, print, framebuffer, net, agent, scheduler, fs, elf};
+use x86_64::structures::paging::PageTableFlags;
 
 pub fn execute(line: &str) {
     let line = line.trim();
@@ -28,6 +29,8 @@ pub fn execute(line: &str) {
         "pagetest" => cmd_pagetest(),
         "tasktest" => cmd_tasktest(),
         "ps" => cmd_ps(),
+        "run" => cmd_run(args),
+        "ls" => cmd_ls(),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -51,6 +54,8 @@ fn cmd_help() {
     println!("  pagetest  - Test paging and virtual memory");
     println!("  tasktest  - Test scheduler and task switching");
     println!("  ps        - List running tasks");
+    println!("  run       - Run a userspace program from ramdisk (e.g., run hello)");
+    println!("  ls        - List files in ramdisk");
 }
 
 fn cmd_echo(args: &str) {
@@ -436,4 +441,68 @@ fn task_worker2() {
         }
     }
     println!("[WORKER2] Done");
+}
+
+fn cmd_run(args: &str) {
+    let name = args.trim();
+    if name.is_empty() {
+        println!("Usage: run <program>");
+        return;
+    }
+
+    let file = match fs::ramdisk::find(name) {
+        Some(f) => f,
+        None => {
+            println!("Program '{}' not found in ramdisk", name);
+            return;
+        }
+    };
+
+    unsafe {
+        let entry = match elf::load_elf(file.data) {
+            Some(e) => e,
+            None => {
+                println!("Failed to load ELF '{}'", name);
+                return;
+            }
+        };
+
+        // Allocate user stack: one page at 0x7FF000, top at 0x800000
+        let stack_phys = match memory::allocator::alloc_page() {
+            Some(p) => p,
+            None => {
+                println!("Failed to allocate stack");
+                return;
+            }
+        };
+
+        let stack_virt: u64 = 0x7FF000;
+        let stack_top = stack_virt + 4096;
+
+        let stack_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+        if !memory::paging::map_page(stack_virt, stack_phys, stack_flags) {
+            println!("Failed to map stack");
+            memory::allocator::free_page(stack_phys);
+            return;
+        }
+
+        // Zero the stack
+        core::ptr::write_bytes(stack_virt as *mut u8, 0, 4096);
+
+        let id = match scheduler::spawn_userspace(file.name, entry, stack_top) {
+            Some(id) => id,
+            None => {
+                println!("Failed to spawn userspace task");
+                return;
+            }
+        };
+
+        println!("Started '{}' as task {}", name, id);
+    }
+}
+
+fn cmd_ls() {
+    unsafe {
+        fs::ramdisk::list();
+    }
 }

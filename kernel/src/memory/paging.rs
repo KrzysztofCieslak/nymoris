@@ -36,14 +36,76 @@ pub unsafe fn init() {
     println!("[PAGING] Paging initialized");
 }
 
+/// Split a P3 1GB huge page into 512 P2 2MB huge pages.
+unsafe fn split_p3_huge_page(p3: &mut PageTable, p3_index: usize, user: bool) -> bool {
+    let old_entry = p3[p3_index].clone();
+    let phys_base = old_entry.addr().as_u64();
+    let old_flags = old_entry.flags() & !PageTableFlags::HUGE_PAGE;
+    let mut sub_flags = old_flags | PageTableFlags::HUGE_PAGE;
+    let mut p3_flags = old_flags;
+    if user {
+        sub_flags |= PageTableFlags::USER_ACCESSIBLE;
+        p3_flags |= PageTableFlags::USER_ACCESSIBLE;
+    }
+
+    let p2_phys = match super::allocator::alloc_page() {
+        Some(p) => p,
+        None => return false,
+    };
+    let p2 = p2_phys as *mut PageTable;
+    let p2_ref = &mut *p2;
+    p2_ref.zero();
+
+    for i in 0..512 {
+        let entry_phys = phys_base + (i as u64 * 0x200000); // 2MB
+        p2_ref[i].set_addr(PhysAddr::new(entry_phys), sub_flags);
+    }
+
+    p3[p3_index].set_addr(PhysAddr::new(p2_phys), p3_flags);
+    true
+}
+
+/// Split a P2 2MB huge page into 512 P1 4KB pages.
+unsafe fn split_p2_huge_page(p2: &mut PageTable, p2_index: usize, user: bool) -> bool {
+    let old_entry = p2[p2_index].clone();
+    let phys_base = old_entry.addr().as_u64();
+    let old_flags = old_entry.flags() & !PageTableFlags::HUGE_PAGE;
+    let mut sub_flags = old_flags;
+    let mut p2_flags = old_flags;
+    if user {
+        sub_flags |= PageTableFlags::USER_ACCESSIBLE;
+        p2_flags |= PageTableFlags::USER_ACCESSIBLE;
+    }
+
+    let p1_phys = match super::allocator::alloc_page() {
+        Some(p) => p,
+        None => return false,
+    };
+    let p1 = p1_phys as *mut PageTable;
+    let p1_ref = &mut *p1;
+    p1_ref.zero();
+
+    for i in 0..512 {
+        let entry_phys = phys_base + (i as u64 * 0x1000); // 4KB
+        p1_ref[i].set_addr(PhysAddr::new(entry_phys), sub_flags);
+    }
+
+    p2[p2_index].set_addr(PhysAddr::new(p1_phys), p2_flags);
+    true
+}
+
 /// Map a single 4KB page. Returns true on success.
-/// This is a simple implementation for kernel use.
+/// Handles splitting of existing huge pages.
 pub unsafe fn map_page(virt: u64, phys: u64, flags: PageTableFlags) -> bool {
     let addr = VirtAddr::new(virt);
     let p4_index = addr.p4_index();
-    let p3_index = addr.p3_index();
-    let p2_index = addr.p2_index();
-    let p1_index = addr.p1_index();
+    let p3_index = usize::from(u16::from(addr.p3_index()));
+    let p2_index = usize::from(u16::from(addr.p2_index()));
+    let p1_index = usize::from(u16::from(addr.p1_index()));
+
+    let user = flags.contains(PageTableFlags::USER_ACCESSIBLE);
+    let intermediate_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE
+        | if user { PageTableFlags::USER_ACCESSIBLE } else { PageTableFlags::empty() };
 
     let p4 = get_p4_mut();
 
@@ -55,21 +117,31 @@ pub unsafe fn map_page(virt: u64, phys: u64, flags: PageTableFlags) -> bool {
         };
         let p3 = p3_phys as *mut PageTable;
         (*p3).zero();
-        p4[p4_index].set_addr(
-            PhysAddr::new(p3_phys),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-        );
+        p4[p4_index].set_addr(PhysAddr::new(p3_phys), intermediate_flags);
         p3
     } else {
+        if user && !p4[p4_index].flags().contains(PageTableFlags::USER_ACCESSIBLE) {
+            let e = &mut p4[p4_index];
+            e.set_addr(e.addr(), e.flags() | PageTableFlags::USER_ACCESSIBLE);
+        }
         p4[p4_index].addr().as_u64() as *mut PageTable
     };
 
-    // Convert p3 to reference for indexing
     let p3 = &mut *p3;
 
-    // Check for 1GB huge page in P3
+    // Split P3 1GB huge page if present
     if p3[p3_index].flags().contains(PageTableFlags::HUGE_PAGE) {
-        return false; // Already mapped as huge page
+        if !split_p3_huge_page(p3, p3_index, user) {
+            return false;
+        }
+    }
+
+    // Ensure P3 entry has USER_ACCESSIBLE if needed
+    if user && p3[p3_index].flags().contains(PageTableFlags::PRESENT)
+        && !p3[p3_index].flags().contains(PageTableFlags::USER_ACCESSIBLE)
+    {
+        let e = &mut p3[p3_index];
+        e.set_addr(e.addr(), e.flags() | PageTableFlags::USER_ACCESSIBLE);
     }
 
     // Get or create P2
@@ -80,20 +152,31 @@ pub unsafe fn map_page(virt: u64, phys: u64, flags: PageTableFlags) -> bool {
         };
         let p2 = p2_phys as *mut PageTable;
         (*p2).zero();
-        p3[p3_index].set_addr(
-            PhysAddr::new(p2_phys),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-        );
+        p3[p3_index].set_addr(PhysAddr::new(p2_phys), intermediate_flags);
         p2
     } else {
+        if user && !p3[p3_index].flags().contains(PageTableFlags::USER_ACCESSIBLE) {
+            let e = &mut p3[p3_index];
+            e.set_addr(e.addr(), e.flags() | PageTableFlags::USER_ACCESSIBLE);
+        }
         p3[p3_index].addr().as_u64() as *mut PageTable
     };
 
     let p2 = &mut *p2;
 
-    // Check for 2MB huge page in P2
+    // Split P2 2MB huge page if present
     if p2[p2_index].flags().contains(PageTableFlags::HUGE_PAGE) {
-        return false;
+        if !split_p2_huge_page(p2, p2_index, user) {
+            return false;
+        }
+    }
+
+    // Ensure P2 entry has USER_ACCESSIBLE if needed
+    if user && p2[p2_index].flags().contains(PageTableFlags::PRESENT)
+        && !p2[p2_index].flags().contains(PageTableFlags::USER_ACCESSIBLE)
+    {
+        let e = &mut p2[p2_index];
+        e.set_addr(e.addr(), e.flags() | PageTableFlags::USER_ACCESSIBLE);
     }
 
     // Get or create P1
@@ -104,12 +187,13 @@ pub unsafe fn map_page(virt: u64, phys: u64, flags: PageTableFlags) -> bool {
         };
         let p1 = p1_phys as *mut PageTable;
         (*p1).zero();
-        p2[p2_index].set_addr(
-            PhysAddr::new(p1_phys),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-        );
+        p2[p2_index].set_addr(PhysAddr::new(p1_phys), intermediate_flags);
         p1
     } else {
+        if user && !p2[p2_index].flags().contains(PageTableFlags::USER_ACCESSIBLE) {
+            let e = &mut p2[p2_index];
+            e.set_addr(e.addr(), e.flags() | PageTableFlags::USER_ACCESSIBLE);
+        }
         p2[p2_index].addr().as_u64() as *mut PageTable
     };
 

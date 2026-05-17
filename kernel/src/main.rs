@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent, scheduler};
+use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent, scheduler, fs, elf, commands};
 use nymoris::println;
 
 #[panic_handler]
@@ -81,6 +81,9 @@ pub extern "C" fn _start() -> ! {
     println!("Nymoris v0.1 booting...");
     println!("============================");
 
+    gdt::init();
+    println!("[OK] GDT initialized");
+
     idt::init();
     println!("[OK] IDT initialized");
 
@@ -95,10 +98,17 @@ pub extern "C" fn _start() -> ! {
     unsafe { memory::heap::HEAP.init(); }
     unsafe { memory::paging::init(); }
 
-    unsafe { scheduler::init(); }
+    unsafe {
+        let stack_top = (core::ptr::addr_of_mut!(STACK.0) as *mut u8).add(128 * 1024) as u64;
+        scheduler::init(stack_top);
+    }
     println!("[OK] Scheduler initialized");
 
-    usb::init();
+    unsafe { fs::ramdisk::init(); }
+    static HELLO_ELF: &[u8] = include_bytes!("../../userspace/hello/hello.elf");
+    unsafe { fs::ramdisk::register("hello", HELLO_ELF); }
+
+    unsafe { usb::init(); }
     println!("[OK] USB initialized");
 
     net::init();
@@ -108,6 +118,9 @@ pub extern "C" fn _start() -> ! {
     agent::start();
 
     println!("\nWelcome to Nymoris! Type 'help' for available commands.\n");
+
+    // Temporary auto-test of userspace
+    commands::execute("run hello");
 
     shell::run();
 }

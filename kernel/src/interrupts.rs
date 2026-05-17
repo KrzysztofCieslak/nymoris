@@ -123,6 +123,39 @@ macro_rules! exception_stub_with_errcode {
 
 exception_stub_with_errcode!(double_fault_stub, double_fault_rust);
 exception_stub_with_errcode!(page_fault_stub, page_fault_rust);
+exception_stub_with_errcode!(gpf_stub, gpf_rust);
+
+// Syscall stub for int 0x80 (from ring 3).
+// CPU pushes SS, RSP, RFLAGS, CS, RIP (40 bytes).
+// We save volatile regs, pass syscall number + args, then restore.
+core::arch::global_asm!(
+    ".globl syscall_stub",
+    "syscall_stub:",
+    "push rax",
+    "push rcx",
+    "push rdx",
+    "push rsi",
+    "push rdi",
+    "push r8",
+    "push r9",
+    "push r10",
+    "push r11",
+    "mov rdi, [rsp + 64]",   // syscall number (saved rax)
+    "mov rsi, [rsp + 32]",   // userspace rdi
+    "mov rdx, [rsp + 40]",   // userspace rsi
+    "mov rcx, [rsp + 48]",   // userspace rdx
+    "call syscall_handler",
+    "pop r11",
+    "pop r10",
+    "pop r9",
+    "pop r8",
+    "pop rdi",
+    "pop rsi",
+    "pop rdx",
+    "pop rcx",
+    "add rsp, 8",            // discard saved rax, keep return value
+    "iretq",
+);
 
 extern "C" {
     pub fn breakpoint_stub();
@@ -130,6 +163,8 @@ extern "C" {
     pub fn keyboard_interrupt_stub();
     pub fn double_fault_stub();
     pub fn page_fault_stub();
+    pub fn gpf_stub();
+    pub fn syscall_stub();
 }
 
 #[no_mangle]
@@ -186,6 +221,17 @@ pub extern "C" fn page_fault_rust(error_code: u64) -> ! {
     crate::framebuffer::WRITER.lock().set_color(crate::framebuffer::Color::White, crate::framebuffer::Color::Red);
     crate::println!("EXCEPTION: PAGE FAULT");
     crate::println!("Accessed Address: {:?}", Cr2::read());
+    crate::println!("Error Code: {:#x}", error_code);
+    x86_64::instructions::interrupts::disable();
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn gpf_rust(error_code: u64) -> ! {
+    crate::framebuffer::WRITER.lock().set_color(crate::framebuffer::Color::White, crate::framebuffer::Color::Red);
+    crate::println!("EXCEPTION: GENERAL PROTECTION FAULT");
     crate::println!("Error Code: {:#x}", error_code);
     x86_64::instructions::interrupts::disable();
     loop {

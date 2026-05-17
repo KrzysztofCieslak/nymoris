@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
 use x86_64::structures::idt::InterruptDescriptorTable;
+use x86_64::PrivilegeLevel;
 use x86_64::VirtAddr;
 
 lazy_static! {
@@ -23,6 +24,10 @@ lazy_static! {
                 .set_handler_addr(VirtAddr::new(
                     crate::interrupts::page_fault_stub as *const () as u64
                 ));
+            idt.general_protection_fault
+                .set_handler_addr(VirtAddr::new(
+                    crate::interrupts::gpf_stub as *const () as u64
+                ));
             idt[crate::interrupts::InterruptIndex::Timer.as_u8()]
                 .set_handler_addr(VirtAddr::new(
                     crate::interrupts::timer_interrupt_stub as *const () as u64
@@ -31,6 +36,12 @@ lazy_static! {
                 .set_handler_addr(VirtAddr::new(
                     crate::interrupts::keyboard_interrupt_stub as *const () as u64
                 ));
+            // Syscall via int 0x80 - DPL=3 so ring 3 can invoke it
+            idt[0x80]
+                .set_handler_addr(VirtAddr::new(
+                    crate::interrupts::syscall_stub as *const () as u64
+                ))
+                .set_privilege_level(PrivilegeLevel::Ring3);
         }
 
         idt
