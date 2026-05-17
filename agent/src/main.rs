@@ -10,8 +10,8 @@ fn main() {
     setup_loopback();
     spawn_zombie_reaper();
 
-    println!("[KACOS] Agentic AI Operating System init starting...");
-    println!("[KACOS] System ready. Starting agent shell.");
+    println!("[Nymoris] Agentic AI Operating System init starting...");
+    println!("[Nymoris] System ready. Starting agent shell.");
     println!("Type 'help' for commands, 'agent' to start AI agent loop.\n");
 
     shell_loop();
@@ -132,7 +132,7 @@ fn shell_loop() {
         match cmd {
             "help" => print_help(),
             "exit" | "quit" => {
-                println!("[KACOS] Shutting down...");
+                println!("[Nymoris] Shutting down...");
                 unsafe {
                     libc::reboot(libc::LINUX_REBOOT_CMD_POWER_OFF);
                 }
@@ -185,7 +185,7 @@ fn shell_loop() {
 }
 
 fn print_help() {
-    println!("KACOS Agent Shell Commands:");
+    println!("Nymoris Agent Shell Commands:");
     println!("  help       Show this help");
     println!("  ps         List processes");
     println!("  cat <file> Show file contents");

@@ -1,10 +1,10 @@
-# KACOS — Agentic AI Operating System
+# Nymoris — Agentic AI Operating System
 
-KACOS (pronounced "kay-kos") is a minimal Linux-based operating system designed to host and run autonomous AI agents. It boots a Linux kernel with a custom initramfs containing a lightweight agent runtime.
+Nymoris (pronounced "kay-kos") is a minimal Linux-based operating system designed to host and run autonomous AI agents. It boots a Linux kernel with a custom initramfs containing a lightweight agent runtime.
 
 ## Vision
 
-KACOS is built as a dedicated runtime for agentic AI — software that perceives, decides, and acts on behalf of users. Unlike a general-purpose Linux distribution, KACOS is purpose-built:
+Nymoris is built as a dedicated runtime for agentic AI — software that perceives, decides, and acts on behalf of users. Unlike a general-purpose Linux distribution, Nymoris is purpose-built:
 
 - Minimal attack surface — only what's needed for agents
 - Direct control over the system environment
@@ -14,10 +14,10 @@ KACOS is built as a dedicated runtime for agentic AI — software that perceives
 
 ## Architecture
 
-KACOS is built on the Linux kernel (Alpine LTS) with a custom initramfs:
+Nymoris is built on the Linux kernel (Alpine LTS) with a custom initramfs:
 
 ```
-Linux Kernel (Alpine LTS) → Custom Initramfs → kacos-init (PID 1)
+Linux Kernel (Alpine LTS) → Custom Initramfs → nymoris-init (PID 1)
                                               → Agent Shell
                                               → Built-in tools
 ```
@@ -65,11 +65,11 @@ In the serial console, type `help` to see available commands.
 
 ```bash
 # Compile init program
-x86_64-elf-gcc -nostdlib -static -O2 -o /tmp/kacos-init init.c
+x86_64-elf-gcc -nostdlib -static -O2 -o /tmp/nymoris-init init.c
 
 # Create initramfs
 mkdir -p initramfs/{dev,proc,sys,tmp,bin}
-cp /tmp/kacos-init initramfs/init
+cp /tmp/nymoris-init initramfs/init
 chmod +x initramfs/init
 cd initramfs && find . | cpio -o -H newc | gzip > ../initramfs.cpio.gz
 
@@ -81,7 +81,7 @@ qemu-system-x86_64 -kernel vmlinuz -initrd initramfs.cpio.gz \
 ## Project Structure
 
 ```
-kacos/
+nymoris/
 ├── vmlinuz              # Linux kernel (Alpine LTS)
 ├── initramfs.cpio.gz    # Gzipped cpio initramfs
 ├── init.c               # Custom init program (PID 1)
@@ -111,7 +111,7 @@ kacos/
 
 ## Why Linux?
 
-KACOS was previously built as a custom kernel ("Nymoris") from scratch. While educational, that approach required years of work to achieve basic functionality. By building on Linux:
+Nymoris was previously built as a custom kernel ("Nymoris") from scratch. While educational, that approach required years of work to achieve basic functionality. By building on Linux:
 
 - **Proven hardware support** — drivers for virtually all x86_64 hardware
 - **Network stack** — TCP/IP, routing, firewalling

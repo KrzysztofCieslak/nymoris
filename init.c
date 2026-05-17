@@ -301,7 +301,7 @@ static void do_http_get(const char *host, const char *path) {
 static void shell_loop(void) {
     printn("");
     printn("========================================");
-    printn("  KACOS Agentic AI Operating System");
+    printn("  Nymoris Agentic AI Operating System");
     printn("========================================");
     printn("");
 
@@ -363,7 +363,7 @@ void _start(void) {
     sys_mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
     sys_mount("tmpfs", "/tmp", "tmpfs", 0, NULL);
 
-    printn("[KACOS] init started");
+    printn("[Nymoris] init started");
 
     shell_loop();
 

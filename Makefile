@@ -1,7 +1,7 @@
 VMLINUZ := vmlinuz
 INITRAMFS := initramfs.cpio.gz
 INIT_SRC := init.c
-INIT_BIN := /tmp/kacos-init
+INIT_BIN := /tmp/nymoris-init
 
 CC := x86_64-elf-gcc
 CFLAGS := -nostdlib -static -O2

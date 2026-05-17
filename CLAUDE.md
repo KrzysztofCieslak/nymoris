@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-KACOS is a minimal Linux-based operating system for AI agents. It boots a Linux kernel (Alpine LTS) with a custom initramfs containing a lightweight init program that runs as PID 1.
+Nymoris is a minimal Linux-based operating system for AI agents. It boots a Linux kernel (Alpine LTS) with a custom initramfs containing a lightweight init program that runs as PID 1.
 
 ## Build System
 
@@ -30,9 +30,9 @@ make clean
 
 **Manual build:**
 ```bash
-x86_64-elf-gcc -nostdlib -static -O2 -o /tmp/kacos-init init.c
+x86_64-elf-gcc -nostdlib -static -O2 -o /tmp/nymoris-init init.c
 mkdir -p initramfs/{dev,proc,sys,tmp,bin}
-cp /tmp/kacos-init initramfs/init
+cp /tmp/nymoris-init initramfs/init
 chmod +x initramfs/init
 cd initramfs && find . | cpio -o -H newc | gzip > ../initramfs.cpio.gz
 qemu-system-x86_64 -kernel vmlinuz -initrd initramfs.cpio.gz \
