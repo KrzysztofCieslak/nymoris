@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent};
+use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent, scheduler};
 use nymoris::println;
 
 #[panic_handler]
@@ -94,6 +94,9 @@ pub extern "C" fn _start() -> ! {
     unsafe { memory::allocator::init(); }
     unsafe { memory::heap::HEAP.init(); }
     unsafe { memory::paging::init(); }
+
+    unsafe { scheduler::init(); }
+    println!("[OK] Scheduler initialized");
 
     usb::init();
     println!("[OK] USB initialized");

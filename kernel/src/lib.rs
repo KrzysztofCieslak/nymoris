@@ -16,6 +16,7 @@ pub mod shell;
 pub mod usb;
 pub mod framebuffer;
 pub mod agent;
+pub mod scheduler;
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {

@@ -143,8 +143,13 @@ pub extern "C" fn timer_interrupt_rust() {
         crate::usb::hid::poll_keyboard();
         crate::usb::uhci::poll_keyboard();
         crate::agent::tick();
+
+        // Send EOI before potentially switching away.
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
+
+        // Preemptive scheduling: switch to next ready task.
+        crate::scheduler::schedule();
     }
 }
 

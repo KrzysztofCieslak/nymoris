@@ -1,4 +1,4 @@
-use crate::{interrupts, memory, println, print, framebuffer, net, agent};
+use crate::{interrupts, memory, println, print, framebuffer, net, agent, scheduler};
 
 pub fn execute(line: &str) {
     let line = line.trim();
@@ -26,6 +26,8 @@ pub fn execute(line: &str) {
         "alloctest" => cmd_alloctest(),
         "heaptest" => cmd_heaptest(),
         "pagetest" => cmd_pagetest(),
+        "tasktest" => cmd_tasktest(),
+        "ps" => cmd_ps(),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -47,6 +49,8 @@ fn cmd_help() {
     println!("  alloctest - Test page frame allocator");
     println!("  heaptest  - Test kernel heap allocator");
     println!("  pagetest  - Test paging and virtual memory");
+    println!("  tasktest  - Test scheduler and task switching");
+    println!("  ps        - List running tasks");
 }
 
 fn cmd_echo(args: &str) {
@@ -392,4 +396,44 @@ fn cmd_pagetest() {
 
     memory::allocator::free_page(phys);
     println!("[PAGETEST] PASS");
+}
+
+fn cmd_ps() {
+    unsafe {
+        scheduler::list_tasks();
+    }
+}
+
+fn cmd_tasktest() {
+    println!("[TASKTEST] Testing scheduler...");
+
+    unsafe {
+        // Spawn two simple worker tasks.
+        scheduler::spawn("worker1", task_worker1);
+        scheduler::spawn("worker2", task_worker2);
+
+        println!("[TASKTEST] Spawned 2 tasks. Run 'ps' to see them.");
+        println!("[TASKTEST] The timer interrupt will preempt between tasks.");
+    }
+}
+
+fn task_worker1() {
+    for i in 0..5 {
+        println!("[WORKER1] iteration {}", i);
+        // Voluntarily yield every so often.
+        unsafe {
+            scheduler::yield_cpu();
+        }
+    }
+    println!("[WORKER1] Done");
+}
+
+fn task_worker2() {
+    for i in 0..5 {
+        println!("[WORKER2] iteration {}", i);
+        unsafe {
+            scheduler::yield_cpu();
+        }
+    }
+    println!("[WORKER2] Done");
 }
