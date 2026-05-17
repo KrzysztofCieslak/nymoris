@@ -18,6 +18,7 @@
 #define SYS_wait4    61
 #define SYS_fork     57
 #define SYS_execve   59
+#define SYS_kill     62
 #define SYS_getcwd   79
 #define SYS_rename   82
 #define SYS_unlink   87
@@ -234,6 +235,17 @@ static int sys_execve(const char *path, char *const argv[], char *const envp[]) 
     return ret;
 }
 
+static int sys_kill(int pid, int sig) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_kill), "D"(pid), "S"(sig)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
 static int sys_unlink(const char *path) {
     int ret;
     asm volatile(
@@ -374,6 +386,40 @@ static void cat_file(const char *path) {
     sys_close(fd);
 }
 
+static void print_env(void) {
+    int fd = sys_open("/proc/self/environ", 0, 0);
+    if (fd < 0) {
+        printn("env: cannot open /proc/self/environ");
+        return;
+    }
+    char buf[1024];
+    int n = sys_read(fd, buf, sizeof(buf) - 1);
+    sys_close(fd);
+    if (n <= 0) {
+        printn("env: no environment variables");
+        return;
+    }
+    int i = 0;
+    while (i < n) {
+        // print until null byte
+        int start = i;
+        while (i < n && buf[i] != '\0') i++;
+        if (i > start) {
+            sys_write(1, buf + start, i - start);
+            print("\n");
+        }
+        i++; // skip null byte
+    }
+}
+
+static int is_numeric(const char *s) {
+    while (*s) {
+        if (*s < '0' || *s > '9') return 0;
+        s++;
+    }
+    return 1;
+}
+
 struct linux_dirent64 {
     uint64_t d_ino;
     int64_t d_off;
@@ -381,6 +427,108 @@ struct linux_dirent64 {
     unsigned char d_type;
     char d_name[];
 };
+
+static void ps_list(void) {
+    printn("  PID   PPID  CMD");
+    int fd = sys_open("/proc", 0, 0);
+    if (fd < 0) {
+        printn("ps: cannot open /proc");
+        return;
+    }
+    char buf[1024];
+    int n;
+    while ((n = sys_getdents64(fd, buf, sizeof(buf))) > 0) {
+        int pos = 0;
+        while (pos < n) {
+            struct linux_dirent64 *de = (struct linux_dirent64 *)(buf + pos);
+            if (is_numeric(de->d_name)) {
+                char stat_path[64];
+                int i = 0;
+                const char *prefix = "/proc/";
+                while (prefix[i]) { stat_path[i] = prefix[i]; i++; }
+                int j = 0;
+                while (de->d_name[j]) { stat_path[i++] = de->d_name[j++]; }
+                const char *suffix = "/stat";
+                j = 0;
+                while (suffix[j]) { stat_path[i++] = suffix[j++]; }
+                stat_path[i] = '\0';
+
+                int sfd = sys_open(stat_path, 0, 0);
+                if (sfd >= 0) {
+                    char sbuf[256];
+                    int sr = sys_read(sfd, sbuf, sizeof(sbuf) - 1);
+                    if (sr > 0) {
+                        sbuf[sr] = '\0';
+                        // Parse: pid (comm) state ppid ...
+                        // Find first space -> end of pid
+                        int pid_end = 0;
+                        while (sbuf[pid_end] && sbuf[pid_end] != ' ') pid_end++;
+                        sbuf[pid_end] = '\0';
+
+                        // Find '(' and ')'
+                        char *comm_start = 0;
+                        char *comm_end = 0;
+                        for (int k = pid_end + 1; sbuf[k]; k++) {
+                            if (sbuf[k] == '(') comm_start = &sbuf[k + 1];
+                            if (sbuf[k] == ')') { comm_end = &sbuf[k]; break; }
+                        }
+                        if (comm_start && comm_end) *comm_end = '\0';
+
+                        // Find ppid after ')'
+                        char *ppid_ptr = comm_end ? comm_end + 2 : 0;
+                        int ppid = 0;
+                        if (ppid_ptr) {
+                            while (*ppid_ptr == ' ') ppid_ptr++;
+                            // skip state char
+                            if (*ppid_ptr) ppid_ptr++;
+                            while (*ppid_ptr == ' ') ppid_ptr++;
+                            while (*ppid_ptr >= '0' && *ppid_ptr <= '9') {
+                                ppid = ppid * 10 + (*ppid_ptr - '0');
+                                ppid_ptr++;
+                            }
+                        }
+
+                        // Pad and print
+                        print(" ");
+                        print(sbuf); // pid
+                        int pid_len = 0;
+                        while (sbuf[pid_len]) pid_len++;
+                        for (int p = 0; p < 6 - pid_len; p++) print(" ");
+
+                        char ppid_str[16];
+                        int ppid_len = 0;
+                        if (ppid == 0) {
+                            ppid_str[ppid_len++] = '0';
+                        } else {
+                            int tmp = ppid;
+                            char rev[16];
+                            int rev_len = 0;
+                            while (tmp > 0) {
+                                rev[rev_len++] = '0' + (tmp % 10);
+                                tmp /= 10;
+                            }
+                            for (int r = rev_len - 1; r >= 0; r--) {
+                                ppid_str[ppid_len++] = rev[r];
+                            }
+                        }
+                        ppid_str[ppid_len] = '\0';
+                        print(ppid_str);
+                        for (int p = 0; p < 6 - ppid_len; p++) print(" ");
+
+                        if (comm_start && comm_end) {
+                            printn(comm_start);
+                        } else {
+                            printn("?");
+                        }
+                    }
+                    sys_close(sfd);
+                }
+            }
+            pos += de->d_reclen;
+        }
+    }
+    sys_close(fd);
+}
 
 static void ls_dir(const char *path) {
     int fd = sys_open(path, 0, 0);
@@ -979,6 +1127,9 @@ static void shell_loop(void) {
             printn("  wget <h> <p> <f>  Download file via HTTP");
             printn("  http <host> [p]   HTTP GET");
             printn("  sleep <secs>      Sleep");
+            printn("  ps                List processes");
+            printn("  kill <pid> [sig]  Send signal to process");
+            printn("  env               Show environment variables");
             printn("  agent             Start AI agent loop");
             printn("  llm <m> <p>      Run local LLM inference");
             printn("  reboot            Reboot system");
@@ -988,8 +1139,33 @@ static void shell_loop(void) {
         } else if (starts_with(linebuf, "ls ")) {
             ls_dir(linebuf + 3);
         } else if (strcmp_(linebuf, "ps") == 0) {
-            printn("PID    PPID   CMD");
-            printn("(ps not fully implemented)");
+            ps_list();
+        } else if (starts_with(linebuf, "kill ")) {
+            char *rest = linebuf + 5;
+            while (*rest == ' ') rest++;
+            int pid = 0;
+            while (*rest >= '0' && *rest <= '9') {
+                pid = pid * 10 + (*rest - '0');
+                rest++;
+            }
+            int sig = 15; // SIGTERM
+            while (*rest == ' ') rest++;
+            if (*rest >= '0' && *rest <= '9') {
+                sig = 0;
+                while (*rest >= '0' && *rest <= '9') {
+                    sig = sig * 10 + (*rest - '0');
+                    rest++;
+                }
+            }
+            if (pid > 0) {
+                if (sys_kill(pid, sig) < 0) {
+                    printn("kill: failed");
+                }
+            } else {
+                printn("Usage: kill <pid> [signal]");
+            }
+        } else if (strcmp_(linebuf, "env") == 0) {
+            print_env();
         } else if (strcmp_(linebuf, "reboot") == 0) {
             do_reboot();
         } else if (strcmp_(linebuf, "exit") == 0 || strcmp_(linebuf, "quit") == 0) {
