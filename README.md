@@ -29,10 +29,11 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] Boots Linux kernel + custom initramfs in QEMU
 - [x] Interactive agent shell with built-in commands
 - [x] Basic filesystem operations (cat, ls, mkdir)
-- [x] HTTP client via raw sockets
+- [x] HTTP client via raw sockets (GET + POST)
 - [x] System control (reboot, poweroff)
 - [x] Interactive agent loop (`agent` command)
-- [ ] AI API integration (HTTP POST + JSON)
+- [x] AI API integration — `ask` command calls OpenAI-compatible API
+- [x] Minimal JSON parser for API responses
 - [ ] Local LLM inference
 
 ## Quick Start
@@ -122,6 +123,7 @@ Inside the `agent` loop:
 | `run <cmd>` | Execute shell command |
 | `read <file>` | Read file contents |
 | `write <file> <data>` | Write to file |
+| `ask <prompt>` | Ask AI (calls API) |
 | `http <host> [path]` | HTTP GET |
 | `sleep <secs>` | Sleep |
 | `done` / `quit` | Exit agent loop |
@@ -145,8 +147,8 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 - [x] TCP networking (via Linux kernel sockets)
 - [x] HTTP client
 - [x] Interactive agent loop
-- [ ] HTTP client with JSON parsing
-- [ ] Agent loop calling remote AI APIs
+- [x] HTTP client with JSON parsing
+- [x] Agent loop calling remote AI APIs
 
 ### Phase 2: Advanced Agent (Months)
 - [ ] File system persistence

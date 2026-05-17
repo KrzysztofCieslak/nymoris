@@ -407,6 +407,191 @@ static void do_http_get(const char *host, const char *path) {
     sys_close(fd);
 }
 
+static int do_http_post_body(const char *host, const char *path, const char *body, char *resp, int resp_max) {
+    uint32_t ip = dns_resolve(host);
+    if (ip == 0) return -1;
+
+    int fd = sys_socket(2, 1, 0); // AF_INET, SOCK_STREAM, 0
+    if (fd < 0) return -1;
+
+    struct {
+        uint16_t family;
+        uint16_t port;
+        uint32_t addr;
+        char pad[8];
+    } sa = {2, 0x5000, ip, {0}}; // port 80
+
+    if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
+        sys_close(fd);
+        return -1;
+    }
+
+    char req[2048];
+    int len = 0;
+    const char *p = "POST ";
+    while (*p) req[len++] = *p++;
+    p = path;
+    while (*p) req[len++] = *p++;
+    p = " HTTP/1.1\r\nHost: ";
+    while (*p) req[len++] = *p++;
+    p = host;
+    while (*p) req[len++] = *p++;
+    p = "\r\nContent-Type: application/json\r\nContent-Length: ";
+    while (*p) req[len++] = *p++;
+
+    int body_len = 0;
+    while (body[body_len]) body_len++;
+    char len_str[16];
+    int len_digits = 0;
+    int tmp = body_len;
+    if (tmp == 0) len_str[len_digits++] = '0';
+    while (tmp > 0) {
+        len_str[len_digits++] = '0' + (tmp % 10);
+        tmp /= 10;
+    }
+    for (int i = len_digits - 1; i >= 0; i--) {
+        req[len++] = len_str[i];
+    }
+
+    p = "\r\nConnection: close\r\n\r\n";
+    while (*p) req[len++] = *p++;
+
+    sys_write(fd, req, len);
+    sys_write(fd, body, body_len);
+
+    // Read full response into buffer
+    int total = 0;
+    char buf[256];
+    int n;
+    while ((n = sys_read(fd, buf, sizeof(buf))) > 0 && total + n < resp_max - 1) {
+        for (int i = 0; i < n; i++) resp[total++] = buf[i];
+    }
+    resp[total] = '\0';
+    sys_close(fd);
+
+    // Find body (after \r\n\r\n)
+    for (int i = 0; i < total - 3; i++) {
+        if (resp[i] == '\r' && resp[i+1] == '\n' && resp[i+2] == '\r' && resp[i+3] == '\n') {
+            // Shift body to start of resp
+            int body_start = i + 4;
+            int body_len = total - body_start;
+            for (int j = 0; j <= body_len; j++) resp[j] = resp[body_start + j];
+            return body_len;
+        }
+    }
+    return total;
+}
+
+// Minimal JSON string extractor. Finds key and copies string value into out.
+// Returns 1 on success, 0 on failure. Handles escaped quotes.
+static int json_extract_string(const char *json, const char *key, char *out, int out_len) {
+    int key_len = 0;
+    while (key[key_len]) key_len++;
+
+    const char *p = json;
+    while (*p) {
+        if (*p == '"') {
+            p++;
+            // Check if this is our key
+            int match = 1;
+            for (int i = 0; i < key_len; i++) {
+                if (p[i] != key[i]) { match = 0; break; }
+            }
+            if (match && p[key_len] == '"') {
+                // Found key, skip to value
+                p += key_len + 1;
+                while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == ':') p++;
+                if (*p != '"') return 0;
+                p++;
+                int i = 0;
+                while (*p && *p != '"' && i < out_len - 1) {
+                    if (*p == '\\' && *(p+1)) {
+                        p++;
+                        if (*p == 'n') out[i++] = '\n';
+                        else if (*p == 't') out[i++] = '\t';
+                        else if (*p == 'r') out[i++] = '\r';
+                        else out[i++] = *p;
+                        p++;
+                    } else {
+                        out[i++] = *p++;
+                    }
+                }
+                out[i] = '\0';
+                return 1;
+            }
+            // Skip this string
+            while (*p && *p != '"') {
+                if (*p == '\\' && *(p+1)) p += 2;
+                else p++;
+            }
+            if (*p == '"') p++;
+        } else {
+            p++;
+        }
+    }
+    return 0;
+}
+
+static char api_host[64] = "10.0.2.2";
+static char api_path[128] = "/v1/chat/completions";
+
+static void run_command(const char *cmd);
+static void write_file(const char *path, const char *content);
+
+static void ask_ai(const char *prompt) {
+    char body[2048];
+    int bl = 0;
+    const char *p = "{\"model\":\"gpt-3.5-turbo\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI agent running inside Nymoris OS. You can use these tools: run <shell_command>, read <file>, write <file> <content>, http <host> [path]. Respond with the tool call only, no explanation.\"},{\"role\":\"user\",\"content\":\"";
+    while (*p) body[bl++] = *p++;
+    // Escape the prompt for JSON
+    for (int i = 0; prompt[i]; i++) {
+        if (prompt[i] == '"' || prompt[i] == '\\') body[bl++] = '\\';
+        body[bl++] = prompt[i];
+    }
+    p = "\"}]}";
+    while (*p) body[bl++] = *p++;
+    body[bl] = '\0';
+
+    char resp[4096];
+    int resp_len = do_http_post_body(api_host, api_path, body, resp, sizeof(resp));
+    if (resp_len < 0) {
+        printn("[AGENT] API request failed");
+        return;
+    }
+
+    char content[2048];
+    if (json_extract_string(resp, "content", content, sizeof(content))) {
+        printn("[AGENT] AI response:");
+        printn(content);
+
+        // Auto-execute if it looks like a tool call
+        if (starts_with(content, "run ")) {
+            printn("[AGENT] Executing: run");
+            run_command(content + 4);
+        } else if (starts_with(content, "read ")) {
+            printn("[AGENT] Executing: read");
+            cat_file(content + 5);
+        } else if (starts_with(content, "write ")) {
+            printn("[AGENT] Executing: write");
+            // Parse path and content
+            char *wp = content + 6;
+            char *wpath = wp;
+            char *wcontent = NULL;
+            for (int i = 0; wp[i]; i++) {
+                if (wp[i] == ' ') {
+                    wp[i] = '\0';
+                    wcontent = &wp[i + 1];
+                    break;
+                }
+            }
+            if (wcontent) write_file(wpath, wcontent);
+        }
+    } else {
+        printn("[AGENT] Could not parse AI response");
+        printn(resp);
+    }
+}
+
 static void do_sleep(int secs) {
     struct { uint64_t sec; uint64_t nsec; } req = { secs, 0 };
     sys_nanosleep(&req, NULL);
@@ -447,7 +632,7 @@ static void write_file(const char *path, const char *content) {
 
 static void agent_loop(void) {
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
 
     while (1) {
         print("[AGENT] > ");
@@ -469,6 +654,12 @@ static void agent_loop(void) {
         if (strcmp_(action, "done") == 0 || strcmp_(action, "quit") == 0) {
             printn("[AGENT] Exiting agent loop.");
             break;
+        } else if (strcmp_(action, "ask") == 0) {
+            if (arg) {
+                ask_ai(arg);
+            } else {
+                printn("[AGENT] Usage: ask <prompt>");
+            }
         } else if (strcmp_(action, "run") == 0) {
             if (arg) {
                 run_command(arg);
