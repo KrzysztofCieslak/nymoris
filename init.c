@@ -19,6 +19,7 @@
 #define SYS_fork     57
 #define SYS_execve   59
 #define SYS_kill     62
+#define SYS_uname    63
 #define SYS_getcwd   79
 #define SYS_rename   82
 #define SYS_unlink   87
@@ -241,6 +242,17 @@ static int sys_kill(int pid, int sig) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_kill), "D"(pid), "S"(sig)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_uname(void *buf) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_uname), "D"(buf)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -496,6 +508,111 @@ static void print_uptime(void) {
 static void do_clear(void) {
     // ANSI escape: clear screen, move cursor to top-left
     print("\x1b[2J\x1b[H");
+}
+
+static void grep_file(const char *pattern, const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("grep: cannot open file");
+        return;
+    }
+    char buf[1024];
+    int n;
+    char line[256];
+    int line_pos = 0;
+    int pat_len = 0;
+    while (pattern[pat_len]) pat_len++;
+
+    while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
+        for (int i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                line[line_pos] = '\0';
+                // Search for pattern in line
+                int found = 0;
+                for (int j = 0; line[j] && !found; j++) {
+                    int match = 1;
+                    for (int k = 0; k < pat_len; k++) {
+                        if (line[j + k] != pattern[k]) { match = 0; break; }
+                    }
+                    if (match) found = 1;
+                }
+                if (found) {
+                    printn(line);
+                }
+                line_pos = 0;
+            } else if (line_pos < sizeof(line) - 1) {
+                line[line_pos++] = buf[i];
+            }
+        }
+    }
+    sys_close(fd);
+}
+
+static void head_file(const char *path, int nlines) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("head: cannot open file");
+        return;
+    }
+    char buf[256];
+    int n;
+    int lines = 0;
+    while ((n = sys_read(fd, buf, sizeof(buf))) > 0 && lines < nlines) {
+        for (int i = 0; i < n && lines < nlines; i++) {
+            sys_write(1, &buf[i], 1);
+            if (buf[i] == '\n') lines++;
+        }
+    }
+    sys_close(fd);
+}
+
+static void wc_file(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("wc: cannot open file");
+        return;
+    }
+    char buf[256];
+    int n;
+    int lines = 0, words = 0, bytes = 0;
+    int in_word = 0;
+    while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
+        bytes += n;
+        for (int i = 0; i < n; i++) {
+            if (buf[i] == '\n') lines++;
+            if (buf[i] == ' ' || buf[i] == '\n' || buf[i] == '\t') {
+                in_word = 0;
+            } else if (!in_word) {
+                in_word = 1;
+                words++;
+            }
+        }
+    }
+    sys_close(fd);
+    print_int(lines); print(" ");
+    print_int(words); print(" ");
+    print_int(bytes); print(" ");
+    printn(path);
+}
+
+static void print_uname(void) {
+    struct {
+        char sysname[65];
+        char nodename[65];
+        char release[65];
+        char version[65];
+        char machine[65];
+        char domainname[65];
+    } buf;
+    if (sys_uname(&buf) < 0) {
+        printn("uname: failed");
+        return;
+    }
+    print(buf.sysname); print(" ");
+    print(buf.nodename); print(" ");
+    print(buf.release); print(" ");
+    print(buf.version); print(" ");
+    printn(buf.machine);
 }
 
 static int is_numeric(const char *s) {
@@ -1202,6 +1319,9 @@ static void shell_loop(void) {
             printn("  help              Show this help");
             printn("  ls [dir]          List directory");
             printn("  cat <file>        Show file contents");
+            printn("  head <file> [n]   Show first n lines");
+            printn("  grep <p> <file>   Search for pattern");
+            printn("  wc <file>         Count lines/words/bytes");
             printn("  mkdir <dir>       Create directory");
             printn("  echo <text>       Print text");
             printn("  pwd               Print working directory");
@@ -1219,6 +1339,7 @@ static void shell_loop(void) {
             printn("  free              Show memory usage");
             printn("  uptime            Show system uptime");
             printn("  clear             Clear screen");
+            printn("  uname             Show system info");
             printn("  agent             Start AI agent loop");
             printn("  llm <m> <p>      Run local LLM inference");
             printn("  reboot            Reboot system");
@@ -1261,12 +1382,52 @@ static void shell_loop(void) {
             print_uptime();
         } else if (strcmp_(linebuf, "clear") == 0) {
             do_clear();
+        } else if (strcmp_(linebuf, "uname") == 0) {
+            print_uname();
         } else if (strcmp_(linebuf, "reboot") == 0) {
             do_reboot();
         } else if (strcmp_(linebuf, "exit") == 0 || strcmp_(linebuf, "quit") == 0) {
             do_poweroff();
         } else if (starts_with(linebuf, "cat ")) {
             cat_file(linebuf + 4);
+        } else if (starts_with(linebuf, "head ")) {
+            char *rest = linebuf + 5;
+            while (*rest == ' ') rest++;
+            char *path = rest;
+            int nlines = 10;
+            for (int i = 0; rest[i]; i++) {
+                if (rest[i] == ' ') {
+                    rest[i] = '\0';
+                    nlines = 0;
+                    char *p = &rest[i + 1];
+                    while (*p >= '0' && *p <= '9') {
+                        nlines = nlines * 10 + (*p - '0');
+                        p++;
+                    }
+                    break;
+                }
+            }
+            if (nlines <= 0) nlines = 10;
+            head_file(path, nlines);
+        } else if (starts_with(linebuf, "grep ")) {
+            char *rest = linebuf + 5;
+            while (*rest == ' ') rest++;
+            char *pattern = rest;
+            char *path = NULL;
+            for (int i = 0; rest[i]; i++) {
+                if (rest[i] == ' ') {
+                    rest[i] = '\0';
+                    path = &rest[i + 1];
+                    break;
+                }
+            }
+            if (path) {
+                grep_file(pattern, path);
+            } else {
+                printn("Usage: grep <pattern> <file>");
+            }
+        } else if (starts_with(linebuf, "wc ")) {
+            wc_file(linebuf + 3);
         } else if (starts_with(linebuf, "mkdir ")) {
             if (sys_mkdir(linebuf + 6, 0755) < 0) {
                 printn("mkdir: failed");
