@@ -4,7 +4,7 @@ INIT_SRC := init.c
 INIT_BIN := /tmp/nymoris-init
 
 CC := x86_64-elf-gcc
-CFLAGS := -nostdlib -static -O2
+CFLAGS := -nostdlib -static -O2 -mno-sse -mno-sse2 -fno-builtin
 
 .PHONY: all build run run-gui clean
 
@@ -18,7 +18,7 @@ $(INITRAMFS): $(INIT_BIN)
 	cp $(INIT_BIN) initramfs/init
 	chmod +x initramfs/init
 	cd initramfs && find . | cpio -o -H newc 2>/dev/null | gzip > ../$(INITRAMFS)
-	 rm -rf initramfs
+	rm -rf initramfs
 
 build: $(INITRAMFS)
 

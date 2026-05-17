@@ -2,21 +2,26 @@
 #define SYS_write    1
 #define SYS_open     2
 #define SYS_close    3
-#define SYS_fork     57
+#define SYS_lseek    8
 #define SYS_exit     60
-#define SYS_wait4    61
-#define SYS_execve   59
-#define SYS_ioctl    16
-#define SYS_socket   41
-#define SYS_connect  42
 #define SYS_reboot   169
 #define SYS_mount    165
 #define SYS_mkdir    83
 #define SYS_mknod    133
 #define SYS_dup2     33
+#define SYS_socket   41
+#define SYS_connect  42
+#define SYS_getdents64 217
+#define SYS_nanosleep 35
+#define SYS_wait4    61
+#define SYS_fork     57
+#define SYS_execve   59
 
 typedef unsigned long size_t;
 typedef long ssize_t;
+typedef short int16_t;
+typedef int int32_t;
+typedef long int64_t;
 typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
 typedef unsigned long uint64_t;
@@ -49,39 +54,6 @@ static void sys_close(int fd) {
     );
 }
 
-static int sys_read(int fd, char *buf, size_t len) {
-    int ret;
-    asm volatile(
-        "syscall"
-        : "=a"(ret)
-        : "a"(SYS_read), "D"(fd), "S"(buf), "d"(len)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-static int sys_fork(void) {
-    int ret;
-    asm volatile(
-        "syscall"
-        : "=a"(ret)
-        : "a"(SYS_fork)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-static int sys_execve(const char *path, char *const argv[], char *const envp[]) {
-    int ret;
-    asm volatile(
-        "syscall"
-        : "=a"(ret)
-        : "a"(SYS_execve), "D"(path), "S"(argv), "d"(envp)
-        : "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
 static void sys_exit(int code) {
     asm volatile(
         "syscall"
@@ -91,13 +63,12 @@ static void sys_exit(int code) {
     __builtin_unreachable();
 }
 
-static int sys_wait4(int pid, int *status, int options, void *rusage) {
+static int sys_read(int fd, char *buf, size_t len) {
     int ret;
-    register void *r10_ asm("r10") = rusage;
     asm volatile(
         "syscall"
         : "=a"(ret)
-        : "a"(SYS_wait4), "D"(pid), "S"(status), "d"(options), "r"(r10_)
+        : "a"(SYS_read), "D"(fd), "S"(buf), "d"(len)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -172,12 +143,57 @@ static int sys_connect(int fd, const void *addr, int len) {
     return ret;
 }
 
-static int sys_ioctl(int fd, unsigned long req, void *arg) {
+static int sys_getdents64(int fd, void *buf, int count) {
     int ret;
     asm volatile(
         "syscall"
         : "=a"(ret)
-        : "a"(SYS_ioctl), "D"(fd), "S"(req), "d"(arg)
+        : "a"(SYS_getdents64), "D"(fd), "S"(buf), "d"(count)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_nanosleep(const void *req, void *rem) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_nanosleep), "D"(req), "S"(rem)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_fork(void) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_fork)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_wait4(int pid, int *status, int options, void *rusage) {
+    int ret;
+    register void *r10_ asm("r10") = rusage;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_wait4), "D"(pid), "S"(status), "d"(options), "r"(r10_)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_execve(const char *path, char *const argv[], char *const envp[]) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_execve), "D"(path), "S"(argv), "d"(envp)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -194,6 +210,14 @@ static int strcmp_(const char *a, const char *b) {
     return *(unsigned char *)a - *(unsigned char *)b;
 }
 
+static int starts_with(const char *s, const char *prefix) {
+    while (*prefix) {
+        if (*s != *prefix) return 0;
+        s++; prefix++;
+    }
+    return 1;
+}
+
 static void print(const char *s) {
     sys_write(1, s, strlen_(s));
 }
@@ -203,7 +227,57 @@ static void printn(const char *s) {
     print("\n");
 }
 
-static char linebuf[512];
+static void print_int(int n) {
+    char buf[16];
+    int i = 15;
+    buf[i--] = '\0';
+    if (n == 0) {
+        buf[i--] = '0';
+    } else {
+        int neg = n < 0;
+        if (neg) n = -n;
+        while (n > 0) {
+            buf[i--] = '0' + (n % 10);
+            n /= 10;
+        }
+        if (neg) buf[i--] = '-';
+    }
+    print(&buf[i + 1]);
+}
+
+static int parse_ip(const char *s, uint32_t *out) {
+    uint32_t ip = 0;
+    int octets = 0;
+    while (*s && octets < 4) {
+        int n = 0;
+        int digits = 0;
+        while (*s >= '0' && *s <= '9' && digits < 3) {
+            n = n * 10 + (*s - '0');
+            s++; digits++;
+        }
+        if (digits == 0 || n > 255) return -1;
+        ip = (ip << 8) | n;
+        octets++;
+        if (*s == '.') s++;
+    }
+    if (octets != 4 || *s != '\0') return -1;
+    *out = ip;
+    return 0;
+}
+
+static void ip_to_str(uint32_t ip, char *buf) {
+    int i = 0;
+    for (int octet = 0; octet < 4; octet++) {
+        int n = (ip >> (24 - octet * 8)) & 0xFF;
+        if (n >= 100) buf[i++] = '0' + n / 100;
+        if (n >= 10) buf[i++] = '0' + (n / 10) % 10;
+        buf[i++] = '0' + n % 10;
+        if (octet < 3) buf[i++] = '.';
+    }
+    buf[i] = '\0';
+}
+
+static char linebuf[1024];
 static int linepos = 0;
 
 static void read_line(void) {
@@ -216,14 +290,6 @@ static void read_line(void) {
         linebuf[linepos++] = c;
     }
     linebuf[linepos] = '\0';
-}
-
-static int starts_with(const char *s, const char *prefix) {
-    while (*prefix) {
-        if (*s != *prefix) return 0;
-        s++; prefix++;
-    }
-    return 1;
 }
 
 static void cat_file(const char *path) {
@@ -240,10 +306,37 @@ static void cat_file(const char *path) {
     sys_close(fd);
 }
 
-static void do_ps(void) {
-    printn("PID    PPID   CMD");
-    // Simplified - just list /proc entries
-    printn("(ps not fully implemented)");
+struct linux_dirent64 {
+    uint64_t d_ino;
+    int64_t d_off;
+    unsigned short d_reclen;
+    unsigned char d_type;
+    char d_name[];
+};
+
+static void ls_dir(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("ls: cannot open directory");
+        return;
+    }
+    char buf[1024];
+    int n;
+    while ((n = sys_getdents64(fd, buf, sizeof(buf))) > 0) {
+        int pos = 0;
+        while (pos < n) {
+            struct linux_dirent64 *de = (struct linux_dirent64 *)(buf + pos);
+            if (de->d_name[0] != '.') {
+                const char *type = (de->d_type == 4) ? "d" :
+                                   (de->d_type == 10) ? "l" : "-";
+                print(type);
+                print(" ");
+                printn(de->d_name);
+            }
+            pos += de->d_reclen;
+        }
+    }
+    sys_close(fd);
 }
 
 static void do_reboot(void) {
@@ -254,20 +347,36 @@ static void do_poweroff(void) {
     sys_reboot(0xfee1dead, 672274793, 0x4321fedc, NULL);
 }
 
+static uint32_t dns_resolve(const char *host) {
+    // Simple hardcoded DNS for common hosts
+    if (strcmp_(host, "10.0.2.2") == 0) return 0x0202000a;
+    if (strcmp_(host, "127.0.0.1") == 0) return 0x0100007f;
+    if (strcmp_(host, "localhost") == 0) return 0x0100007f;
+    // Try to parse as dotted decimal
+    uint32_t ip;
+    if (parse_ip(host, &ip) == 0) return ip;
+    return 0;
+}
+
 static void do_http_get(const char *host, const char *path) {
+    uint32_t ip = dns_resolve(host);
+    if (ip == 0) {
+        printn("http: cannot resolve host (DNS not implemented, use IP)");
+        return;
+    }
+
     int fd = sys_socket(2, 1, 0); // AF_INET, SOCK_STREAM, 0
     if (fd < 0) {
         printn("http: socket failed");
         return;
     }
 
-    // Simple sockaddr_in for 10.0.2.2 (QEMU gateway)
     struct {
         uint16_t family;
         uint16_t port;
         uint32_t addr;
         char pad[8];
-    } sa = {2, 0x5000, 0x0202000a, {0}}; // port 80, 10.0.2.2
+    } sa = {2, 0x5000, ip, {0}}; // port 80
 
     if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
         printn("http: connect failed");
@@ -298,6 +407,130 @@ static void do_http_get(const char *host, const char *path) {
     sys_close(fd);
 }
 
+static void do_sleep(int secs) {
+    struct { uint64_t sec; uint64_t nsec; } req = { secs, 0 };
+    sys_nanosleep(&req, NULL);
+}
+
+static void run_command(const char *cmd) {
+    int pid = sys_fork();
+    if (pid == 0) {
+        // Child
+        char *argv[4];
+        argv[0] = "/bin/sh";
+        argv[1] = "-c";
+        argv[2] = (char *)cmd;
+        argv[3] = NULL;
+        char *envp[1] = {NULL};
+        sys_execve("/bin/sh", argv, envp);
+        printn("run: exec failed");
+        sys_exit(1);
+    } else if (pid > 0) {
+        int status;
+        sys_wait4(pid, &status, 0, NULL);
+    } else {
+        printn("run: fork failed");
+    }
+}
+
+static void write_file(const char *path, const char *content) {
+    int fd = sys_open(path, 0x241, 0644); // O_WRONLY|O_CREAT|O_TRUNC
+    if (fd < 0) {
+        printn("write: cannot create file");
+        return;
+    }
+    sys_write(fd, content, strlen_(content));
+    sys_close(fd);
+    print("Written to ");
+    printn(path);
+}
+
+static void agent_loop(void) {
+    printn("\n[AGENT] AI Agent loop started.");
+    printn("[AGENT] Commands: run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
+
+    while (1) {
+        print("[AGENT] > ");
+        read_line();
+
+        if (linepos == 0) continue;
+
+        // Parse action and argument
+        char *action = linebuf;
+        char *arg = NULL;
+        for (int i = 0; i < linepos; i++) {
+            if (linebuf[i] == ' ') {
+                linebuf[i] = '\0';
+                arg = &linebuf[i + 1];
+                break;
+            }
+        }
+
+        if (strcmp_(action, "done") == 0 || strcmp_(action, "quit") == 0) {
+            printn("[AGENT] Exiting agent loop.");
+            break;
+        } else if (strcmp_(action, "run") == 0) {
+            if (arg) {
+                run_command(arg);
+            } else {
+                printn("[AGENT] Usage: run <command>");
+            }
+        } else if (strcmp_(action, "read") == 0) {
+            if (arg) {
+                cat_file(arg);
+            } else {
+                printn("[AGENT] Usage: read <file>");
+            }
+        } else if (strcmp_(action, "write") == 0) {
+            if (arg) {
+                // Find space separating path and content
+                char *path = arg;
+                char *content = NULL;
+                for (int i = 0; arg[i]; i++) {
+                    if (arg[i] == ' ') {
+                        arg[i] = '\0';
+                        content = &arg[i + 1];
+                        break;
+                    }
+                }
+                if (content) {
+                    write_file(path, content);
+                } else {
+                    printn("[AGENT] Usage: write <file> <content>");
+                }
+            } else {
+                printn("[AGENT] Usage: write <file> <content>");
+            }
+        } else if (strcmp_(action, "http") == 0) {
+            if (arg) {
+                char *host = arg;
+                char *path = NULL;
+                for (int i = 0; arg[i]; i++) {
+                    if (arg[i] == ' ') {
+                        arg[i] = '\0';
+                        path = &arg[i + 1];
+                        break;
+                    }
+                }
+                do_http_get(host, path ? path : "/");
+            } else {
+                printn("[AGENT] Usage: http <host> [path]");
+            }
+        } else if (strcmp_(action, "sleep") == 0) {
+            if (arg) {
+                int secs = 0;
+                for (int i = 0; arg[i] >= '0' && arg[i] <= '9'; i++) {
+                    secs = secs * 10 + (arg[i] - '0');
+                }
+                do_sleep(secs);
+            }
+        } else {
+            print("[AGENT] Unknown action: ");
+            printn(action);
+        }
+    }
+}
+
 static void shell_loop(void) {
     printn("");
     printn("========================================");
@@ -313,22 +546,56 @@ static void shell_loop(void) {
 
         if (strcmp_(linebuf, "help") == 0) {
             printn("Commands:");
-            printn("  help     Show this help");
-            printn("  ps       List processes");
-            printn("  cat      Show file contents");
-            printn("  reboot   Reboot system");
-            printn("  exit     Power off");
-            printn("  http     HTTP GET (hardcoded to 10.0.2.2)");
+            printn("  help              Show this help");
+            printn("  ls [dir]          List directory");
+            printn("  cat <file>        Show file contents");
+            printn("  mkdir <dir>       Create directory");
+            printn("  echo <text>       Print text");
+            printn("  http <host> [p]   HTTP GET");
+            printn("  sleep <secs>      Sleep");
+            printn("  agent             Start AI agent loop");
+            printn("  reboot            Reboot system");
+            printn("  exit              Power off");
+        } else if (strcmp_(linebuf, "ls") == 0) {
+            ls_dir(".");
+        } else if (starts_with(linebuf, "ls ")) {
+            ls_dir(linebuf + 3);
         } else if (strcmp_(linebuf, "ps") == 0) {
-            do_ps();
+            printn("PID    PPID   CMD");
+            printn("(ps not fully implemented)");
         } else if (strcmp_(linebuf, "reboot") == 0) {
             do_reboot();
         } else if (strcmp_(linebuf, "exit") == 0 || strcmp_(linebuf, "quit") == 0) {
             do_poweroff();
         } else if (starts_with(linebuf, "cat ")) {
             cat_file(linebuf + 4);
+        } else if (starts_with(linebuf, "mkdir ")) {
+            if (sys_mkdir(linebuf + 6, 0755) < 0) {
+                printn("mkdir: failed");
+            }
+        } else if (starts_with(linebuf, "echo ")) {
+            printn(linebuf + 5);
         } else if (starts_with(linebuf, "http ")) {
-            do_http_get("10.0.2.2", "/");
+            char *host = linebuf + 5;
+            char *path = NULL;
+            for (int i = 5; linebuf[i]; i++) {
+                if (linebuf[i] == ' ') {
+                    linebuf[i] = '\0';
+                    path = &linebuf[i + 1];
+                    break;
+                }
+            }
+            do_http_get(host, path ? path : "/");
+        } else if (starts_with(linebuf, "sleep ")) {
+            int secs = 0;
+            char *p = linebuf + 6;
+            while (*p >= '0' && *p <= '9') {
+                secs = secs * 10 + (*p - '0');
+                p++;
+            }
+            do_sleep(secs);
+        } else if (strcmp_(linebuf, "agent") == 0) {
+            agent_loop();
         } else {
             printn("Unknown command. Type 'help' for available commands.");
         }

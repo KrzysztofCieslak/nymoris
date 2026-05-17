@@ -31,8 +31,8 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] Basic filesystem operations (cat, ls, mkdir)
 - [x] HTTP client via raw sockets
 - [x] System control (reboot, poweroff)
-- [ ] TCP networking stack
-- [ ] Agent loop with AI API integration
+- [x] Interactive agent loop (`agent` command)
+- [ ] AI API integration (HTTP POST + JSON)
 - [ ] Local LLM inference
 
 ## Quick Start
@@ -104,10 +104,27 @@ nymoris/
 |---------|-------------|
 | `help` | Show available commands |
 | `cat <file>` | Display file contents |
-| `ps` | List processes |
-| `http` | HTTP GET to QEMU gateway |
+| `ls [dir]` | List directory |
+| `mkdir <dir>` | Create directory |
+| `echo <text>` | Print text |
+| `http <host> [path]` | HTTP GET to host |
+| `sleep <secs>` | Sleep |
+| `agent` | Start AI agent loop |
 | `reboot` | Reboot the system |
 | `exit` | Power off |
+
+### Agent Loop Commands
+
+Inside the `agent` loop:
+
+| Command | Description |
+|---------|-------------|
+| `run <cmd>` | Execute shell command |
+| `read <file>` | Read file contents |
+| `write <file> <data>` | Write to file |
+| `http <host> [path]` | HTTP GET |
+| `sleep <secs>` | Sleep |
+| `done` / `quit` | Exit agent loop |
 
 ## Why Linux?
 
@@ -125,7 +142,9 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 ### Phase 1: Agent MVP (Weeks)
 - [x] Linux kernel + custom initramfs boot
 - [x] Minimal init with shell
-- [ ] TCP networking
+- [x] TCP networking (via Linux kernel sockets)
+- [x] HTTP client
+- [x] Interactive agent loop
 - [ ] HTTP client with JSON parsing
 - [ ] Agent loop calling remote AI APIs
 
