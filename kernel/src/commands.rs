@@ -23,6 +23,7 @@ pub fn execute(line: &str) {
         "httpget" => cmd_httpget(args),
         "httptest" => cmd_httptest(),
         "agent" => cmd_agent(args),
+        "alloctest" => cmd_alloctest(),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -41,6 +42,7 @@ fn cmd_help() {
     println!("  httpget  - HTTP GET request (e.g., httpget 10.0.2.2 80 /)");
     println!("  httptest - HTTP GET to example.com via gateway");
     println!("  agent    - Agent control: agent start | agent stop | agent status");
+    println!("  alloctest - Test page frame allocator");
 }
 
 fn cmd_echo(args: &str) {
@@ -245,5 +247,46 @@ fn cmd_agent(args: &str) {
         _ => {
             println!("Usage: agent start | agent stop | agent status");
         }
+    }
+}
+
+fn cmd_alloctest() {
+    println!("[ALLOCTEST] Testing page frame allocator...");
+
+    let (used_before, total) = memory::allocator::get_stats();
+    println!("[ALLOCTEST] Before: {}/{} pages used", used_before, total);
+
+    // Allocate a few pages
+    let mut pages = [0u64; 5];
+    for (i, page) in pages.iter_mut().enumerate() {
+        match memory::allocator::alloc_page() {
+            Some(p) => {
+                println!("[ALLOCTEST] Allocated page {}: {:x}", i, p);
+                *page = p;
+            }
+            None => {
+                println!("[ALLOCTEST] Failed to allocate page {}", i);
+            }
+        }
+    }
+
+    let (used_mid, _) = memory::allocator::get_stats();
+    println!("[ALLOCTEST] After alloc: {}/{} pages used", used_mid, total);
+
+    // Free them in reverse order
+    for (i, page) in pages.iter().enumerate().rev() {
+        if *page != 0 {
+            memory::allocator::free_page(*page);
+            println!("[ALLOCTEST] Freed page {}: {:x}", i, page);
+        }
+    }
+
+    let (used_after, _) = memory::allocator::get_stats();
+    println!("[ALLOCTEST] After free: {}/{} pages used", used_after, total);
+
+    if used_before == used_after {
+        println!("[ALLOCTEST] PASS: all pages freed correctly");
+    } else {
+        println!("[ALLOCTEST] FAIL: page leak detected");
     }
 }

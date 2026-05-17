@@ -91,6 +91,7 @@ pub extern "C" fn _start() -> ! {
     println!("[OK] Keyboard initialized");
 
     memory::print_memmap();
+    unsafe { memory::allocator::init(); }
 
     usb::init();
     println!("[OK] USB initialized");

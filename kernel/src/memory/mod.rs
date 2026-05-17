@@ -1,3 +1,5 @@
+pub mod allocator;
+
 use crate::println;
 
 /// Convert a kernel virtual address to a physical address using Limine's
@@ -14,6 +16,22 @@ pub fn virt_to_phys(virt: u64) -> u64 {
         None => {
             // Fallback to legacy assumption
             virt - 0xffffffff80000000 + 0x100000
+        }
+    }
+}
+
+/// Convert a physical address to a kernel virtual address (higher-half mapping).
+pub fn phys_to_virt(phys: u64) -> u64 {
+    let exec_addr = crate::boot::EXEC_ADDRESS_REQUEST.response();
+    match exec_addr {
+        Some(resp) => {
+            let vbase = resp.virtual_base;
+            let pbase = resp.physical_base;
+            phys - pbase + vbase
+        }
+        None => {
+            // Fallback to legacy assumption
+            phys - 0x100000 + 0xffffffff80000000
         }
     }
 }
