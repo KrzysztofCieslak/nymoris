@@ -192,6 +192,7 @@ pub extern "C" fn timer_interrupt_rust() {
     }
 }
 
+// Full keyboard handler with defensive programming.
 #[no_mangle]
 pub extern "C" fn keyboard_interrupt_rust() {
     unsafe {
@@ -201,6 +202,7 @@ pub extern "C" fn keyboard_interrupt_rust() {
         if status & 0x01 != 0 {
             let mut data_port = x86_64::instructions::port::Port::new(0x60);
             let scancode: u8 = data_port.read();
+
             // Debug: write scancode to serial directly (no locks)
             crate::serial::write_byte(b'[');
             crate::serial::write_byte(b'P');
@@ -212,6 +214,7 @@ pub extern "C" fn keyboard_interrupt_rust() {
             crate::serial::write_byte(hex[(scancode >> 4) as usize]);
             crate::serial::write_byte(hex[(scancode & 0x0f) as usize]);
             crate::serial::write_byte(b'\n');
+
             crate::keyboard::handle_scancode(scancode);
         }
 
