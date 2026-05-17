@@ -53,6 +53,12 @@ run-gui-pure: iso
 	@echo "Serial output logged to qemu-serial.log"
 	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial file:qemu-serial.log -no-shutdown -no-reboot -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
+# GUI with PS/2 keyboard only (no USB). Use this if USB keyboard doesn't work.
+run-gui-ps2: iso
+	@echo "Starting QEMU with PS/2 keyboard only..."
+	@echo "Serial output logged to qemu-serial.log"
+	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial file:qemu-serial.log -no-shutdown -no-reboot -cpu qemu64,+sse,+sse2 -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
+
 run-debug: iso
 	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -d int -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 

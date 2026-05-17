@@ -201,6 +201,7 @@ pub extern "C" fn keyboard_interrupt_rust() {
         if status & 0x01 != 0 {
             let mut data_port = x86_64::instructions::port::Port::new(0x60);
             let scancode: u8 = data_port.read();
+            crate::println!("[PS2] scancode: {:02x}", scancode);
             crate::keyboard::handle_scancode(scancode);
         }
 
