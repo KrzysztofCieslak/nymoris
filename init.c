@@ -412,6 +412,92 @@ static void print_env(void) {
     }
 }
 
+static void print_free(void) {
+    int fd = sys_open("/proc/meminfo", 0, 0);
+    if (fd < 0) {
+        printn("free: cannot open /proc/meminfo");
+        return;
+    }
+    char buf[1024];
+    int n = sys_read(fd, buf, sizeof(buf) - 1);
+    sys_close(fd);
+    if (n <= 0) {
+        printn("free: cannot read /proc/meminfo");
+        return;
+    }
+    buf[n] = '\0';
+
+    unsigned long total = 0, free = 0, available = 0;
+    char *p = buf;
+    while (*p) {
+        if (starts_with(p, "MemTotal:")) {
+            p += 9;
+            while (*p == ' ') p++;
+            while (*p >= '0' && *p <= '9') {
+                total = total * 10 + (*p - '0');
+                p++;
+            }
+        } else if (starts_with(p, "MemFree:")) {
+            p += 8;
+            while (*p == ' ') p++;
+            while (*p >= '0' && *p <= '9') {
+                free = free * 10 + (*p - '0');
+                p++;
+            }
+        } else if (starts_with(p, "MemAvailable:")) {
+            p += 13;
+            while (*p == ' ') p++;
+            while (*p >= '0' && *p <= '9') {
+                available = available * 10 + (*p - '0');
+                p++;
+            }
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
+    }
+
+    print("MemTotal: "); print_int((int)(total / 1024)); printn(" MB");
+    print("MemFree:  "); print_int((int)(free / 1024)); printn(" MB");
+    print("MemAvail: "); print_int((int)(available / 1024)); printn(" MB");
+}
+
+static void print_uptime(void) {
+    int fd = sys_open("/proc/uptime", 0, 0);
+    if (fd < 0) {
+        printn("uptime: cannot open /proc/uptime");
+        return;
+    }
+    char buf[64];
+    int n = sys_read(fd, buf, sizeof(buf) - 1);
+    sys_close(fd);
+    if (n <= 0) {
+        printn("uptime: cannot read /proc/uptime");
+        return;
+    }
+    buf[n] = '\0';
+
+    // Parse seconds (integer part before decimal)
+    unsigned long secs = 0;
+    char *p = buf;
+    while (*p >= '0' && *p <= '9') {
+        secs = secs * 10 + (*p - '0');
+        p++;
+    }
+
+    int days = secs / 86400;
+    int hours = (secs % 86400) / 3600;
+    int mins = (secs % 3600) / 60;
+
+    if (days > 0) { print_int(days); print("d "); }
+    if (hours > 0) { print_int(hours); print("h "); }
+    print_int(mins); printn("m");
+}
+
+static void do_clear(void) {
+    // ANSI escape: clear screen, move cursor to top-left
+    print("\x1b[2J\x1b[H");
+}
+
 static int is_numeric(const char *s) {
     while (*s) {
         if (*s < '0' || *s > '9') return 0;
@@ -1130,6 +1216,9 @@ static void shell_loop(void) {
             printn("  ps                List processes");
             printn("  kill <pid> [sig]  Send signal to process");
             printn("  env               Show environment variables");
+            printn("  free              Show memory usage");
+            printn("  uptime            Show system uptime");
+            printn("  clear             Clear screen");
             printn("  agent             Start AI agent loop");
             printn("  llm <m> <p>      Run local LLM inference");
             printn("  reboot            Reboot system");
@@ -1166,6 +1255,12 @@ static void shell_loop(void) {
             }
         } else if (strcmp_(linebuf, "env") == 0) {
             print_env();
+        } else if (strcmp_(linebuf, "free") == 0) {
+            print_free();
+        } else if (strcmp_(linebuf, "uptime") == 0) {
+            print_uptime();
+        } else if (strcmp_(linebuf, "clear") == 0) {
+            do_clear();
         } else if (strcmp_(linebuf, "reboot") == 0) {
             do_reboot();
         } else if (strcmp_(linebuf, "exit") == 0 || strcmp_(linebuf, "quit") == 0) {
