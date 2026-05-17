@@ -485,6 +485,18 @@ fn parse_boot_report(report: &[u8; 8]) {
     let shift = (modifiers & 0x22) != 0;
 
     unsafe {
+        // Debug: print non-empty reports to serial
+        let has_keys = report[2..8].iter().any(|&b| b != 0);
+        if has_keys {
+            serial_puts("[UHCI HID] report: ");
+            for b in report.iter() {
+                serial_putc(hex_digit(*b >> 4));
+                serial_putc(hex_digit(*b & 0x0F));
+                serial_putc(b' ');
+            }
+            serial_putc(b'\n');
+        }
+
         for i in 2..8 {
             let code = report[i];
             if code == 0 {
@@ -500,6 +512,13 @@ fn parse_boot_report(report: &[u8; 8]) {
         }
         // Save current report for next comparison
         PREV_REPORT.copy_from_slice(report);
+    }
+}
+
+fn hex_digit(d: u8) -> u8 {
+    match d {
+        0..=9 => b'0' + d,
+        _ => b'a' + (d - 10),
     }
 }
 
