@@ -1,17 +1,17 @@
 VMLINUZ := vmlinuz
 INITRAMFS := initramfs.cpio.gz
-INIT_SRC := init.c
+INIT_SRC := init.c llm.c
 INIT_BIN := /tmp/nymoris-init
 
 CC := x86_64-elf-gcc
-CFLAGS := -nostdlib -static -O2 -mno-sse -mno-sse2 -fno-builtin
+CFLAGS := -nostdlib -static -O2 -fno-builtin
 
 .PHONY: all build run run-gui clean
 
 all: build
 
 $(INIT_BIN): $(INIT_SRC)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ $(INIT_SRC)
 
 $(INITRAMFS): $(INIT_BIN)
 	mkdir -p initramfs/dev initramfs/proc initramfs/sys initramfs/tmp initramfs/bin

@@ -27,7 +27,9 @@ typedef unsigned int uint32_t;
 typedef unsigned long uint64_t;
 #define NULL ((void*)0)
 
-static void sys_write(int fd, const char *buf, size_t len) {
+#include "llm.h"
+
+void sys_write(int fd, const char *buf, size_t len) {
     asm volatile(
         "syscall"
         : : "a"(SYS_write), "D"(fd), "S"(buf), "d"(len)
@@ -35,7 +37,7 @@ static void sys_write(int fd, const char *buf, size_t len) {
     );
 }
 
-static int sys_open(const char *path, int flags, int mode) {
+int sys_open(const char *path, int flags, int mode) {
     int ret;
     asm volatile(
         "syscall"
@@ -46,7 +48,7 @@ static int sys_open(const char *path, int flags, int mode) {
     return ret;
 }
 
-static void sys_close(int fd) {
+void sys_close(int fd) {
     asm volatile(
         "syscall"
         : : "a"(SYS_close), "D"(fd)
@@ -63,7 +65,7 @@ static void sys_exit(int code) {
     __builtin_unreachable();
 }
 
-static int sys_read(int fd, char *buf, size_t len) {
+int sys_read(int fd, char *buf, size_t len) {
     int ret;
     asm volatile(
         "syscall"
@@ -745,6 +747,7 @@ static void shell_loop(void) {
             printn("  http <host> [p]   HTTP GET");
             printn("  sleep <secs>      Sleep");
             printn("  agent             Start AI agent loop");
+            printn("  llm <m> <p>      Run local LLM inference");
             printn("  reboot            Reboot system");
             printn("  exit              Power off");
         } else if (strcmp_(linebuf, "ls") == 0) {
@@ -787,6 +790,31 @@ static void shell_loop(void) {
             do_sleep(secs);
         } else if (strcmp_(linebuf, "agent") == 0) {
             agent_loop();
+        } else if (starts_with(linebuf, "llm ")) {
+            char *rest = linebuf + 4;
+            while (*rest == ' ') rest++;
+            char *model_path = rest;
+            char *prompt = NULL;
+            for (int i = 0; rest[i]; i++) {
+                if (rest[i] == ' ') {
+                    rest[i] = '\0';
+                    prompt = &rest[i + 1];
+                    break;
+                }
+            }
+            if (prompt) {
+                printn("[LLM] Loading model...");
+                char output[1024];
+                int n = llm_generate(model_path, prompt, output, sizeof(output), 64);
+                if (n > 0) {
+                    printn("[LLM] Generated:");
+                    printn(output);
+                } else {
+                    printn("[LLM] Generation failed");
+                }
+            } else {
+                printn("Usage: llm <model> <prompt>");
+            }
         } else {
             printn("Unknown command. Type 'help' for available commands.");
         }

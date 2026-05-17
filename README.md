@@ -34,7 +34,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] Interactive agent loop (`agent` command)
 - [x] AI API integration — `ask` command calls OpenAI-compatible API
 - [x] Minimal JSON parser for API responses
-- [ ] Local LLM inference
+- [x] Local LLM inference (llm.c + convert.py)
 
 ## Quick Start
 
@@ -111,6 +111,7 @@ nymoris/
 | `http <host> [path]` | HTTP GET to host |
 | `sleep <secs>` | Sleep |
 | `agent` | Start AI agent loop |
+| `llm <model> <prompt>` | Run local LLM inference |
 | `reboot` | Reboot the system |
 | `exit` | Power off |
 
@@ -153,7 +154,7 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 ### Phase 2: Advanced Agent (Months)
 - [ ] File system persistence
 - [ ] Multi-process agent runtime
-- [ ] Local LLM inference (GGUF)
+- [x] Local LLM inference (llm.c + convert.py) (GGUF)
 - [ ] Container-style isolation
 
 ### Phase 3: Production (Months)
