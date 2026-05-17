@@ -59,6 +59,12 @@ run-gui-ps2: iso
 	@echo "Serial output logged to qemu-serial.log"
 	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial file:qemu-serial.log -no-shutdown -no-reboot -cpu qemu64,+sse,+sse2 -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
+# Debug GUI mode - logs interrupts to qemu-serial.log. Use if QEMU quits on keypress.
+run-gui-debug: iso
+	@echo "Starting QEMU with interrupt debug logging..."
+	@echo "Serial + debug output logged to qemu-serial.log"
+	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial file:qemu-serial.log -no-shutdown -no-reboot -d int -cpu qemu64,+sse,+sse2 -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
+
 run-debug: iso
 	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -d int -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 

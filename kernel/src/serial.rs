@@ -25,6 +25,20 @@ pub fn get_char() -> Option<char> {
     }
 }
 
+/// Write a single byte to COM1 (wait for THR empty).
+pub fn write_byte(b: u8) {
+    unsafe {
+        let mut lsr: x86_64::instructions::port::Port<u8> =
+            x86_64::instructions::port::Port::new(0x3F8 + 5);
+        while lsr.read() & 0x20 == 0 {
+            core::arch::asm!("pause", options(nomem, nostack));
+        }
+        let mut data: x86_64::instructions::port::Port<u8> =
+            x86_64::instructions::port::Port::new(0x3F8);
+        data.write(b);
+    }
+}
+
 /// Enable COM1 receiver interrupts (IER bit 0).
 pub fn init() {
     unsafe {
