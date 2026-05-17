@@ -39,8 +39,19 @@ $(ISO): $(KERNEL) limine.conf limine/limine-bios.sys limine/limine-bios-cd.bin l
 run: iso
 	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
+# GUI mode with serial output to terminal (for debugging).
+# Type commands in the terminal window, output appears in both terminal and QEMU window.
+# Do NOT close the terminal while QEMU is running.
 run-gui: iso
 	qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial stdio -no-shutdown -no-reboot -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
+
+# Pure GUI mode - no terminal serial attachment. QEMU window is the only interface.
+# Serial output is logged to qemu-serial.log. Closing the terminal does NOT kill QEMU.
+# Type commands inside the QEMU window (USB keyboard).
+run-gui-pure: iso
+	@echo "Starting QEMU in pure GUI mode..."
+	@echo "Serial output logged to qemu-serial.log"
+	@qemu-system-x86_64 -cdrom $(ISO) -m 256M -serial file:qemu-serial.log -no-shutdown -no-reboot -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
 
 run-debug: iso
 	qemu-system-x86_64 -cdrom $(ISO) -m 256M -nographic -no-reboot -d int -cpu qemu64,+sse,+sse2 -usb -device usb-kbd -device virtio-net-pci,netdev=net0 -netdev user,id=net0,hostfwd=tcp::8080-:80
