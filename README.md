@@ -1,6 +1,6 @@
 # Nymoris — Agentic AI Operating System
 
-Nymoris (pronounced "kay-kos") is a minimal Linux-based operating system designed to host and run autonomous AI agents. It boots a Linux kernel with a custom initramfs containing a lightweight agent runtime.
+Nymoris (pronounced "nemoris") is a minimal Linux-based operating system designed to host and run autonomous AI agents. It boots a Linux kernel with a custom initramfs containing a lightweight agent runtime.
 
 ## Vision
 
