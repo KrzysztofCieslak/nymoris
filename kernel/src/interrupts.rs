@@ -142,6 +142,7 @@ pub extern "C" fn timer_interrupt_rust() {
     unsafe {
         crate::usb::hid::poll_keyboard();
         crate::usb::uhci::poll_keyboard();
+        crate::agent::tick();
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
     }

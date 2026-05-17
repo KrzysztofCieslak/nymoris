@@ -8,7 +8,7 @@ const ARP_OP_REQUEST: u16 = 1;
 const ARP_OP_REPLY: u16 = 2;
 
 static mut GATEWAY_IP: [u8; 4] = [10, 0, 2, 2];
-static mut GATEWAY_MAC: [u8; 6] = [0; 6];
+static mut GATEWAY_MAC: [u8; 6] = [0x52, 0x55, 0x0a, 0x00, 0x02, 0x02]; // QEMU slirp default gateway MAC
 static mut OUR_IP: [u8; 4] = [10, 0, 2, 15];
 
 pub fn set_our_ip(ip: [u8; 4]) {
@@ -81,7 +81,7 @@ pub fn handle_arp_packet(frame: &crate::net::ethernet::EthernetFrame) {
 }
 
 pub fn send_arp_request(target_ip: &[u8; 4]) {
-    let mut buffer = [0u8; 42]; // 14 ethernet + 28 ARP
+    let mut buffer = [0u8; 64]; // Min Ethernet frame is 60 bytes + padding room
     let our_mac = virtio::get_mac_address();
 
     // ARP packet
@@ -97,15 +97,15 @@ pub fn send_arp_request(target_ip: &[u8; 4]) {
 
     // Ethernet frame
     let broadcast = [0xFFu8; 6];
-    let mut eth_buffer = [0u8; 42];
-    let len = build_frame(&mut eth_buffer, &broadcast, &our_mac, ETHERTYPE_ARP, &buffer[14..]);
+    let mut eth_buffer = [0u8; 64];
+    let len = build_frame(&mut eth_buffer, &broadcast, &our_mac, ETHERTYPE_ARP, &buffer[14..42]);
 
     virtio::send_packet(&eth_buffer[..len]);
     println!("[ARP] Request sent for {}.{}.{}.{}", target_ip[0], target_ip[1], target_ip[2], target_ip[3]);
 }
 
 fn send_arp_reply(dst_mac: &[u8; 6], dst_ip: &[u8; 4]) {
-    let mut buffer = [0u8; 42];
+    let mut buffer = [0u8; 64];
     let our_mac = virtio::get_mac_address();
 
     // ARP packet
@@ -120,8 +120,8 @@ fn send_arp_reply(dst_mac: &[u8; 6], dst_ip: &[u8; 4]) {
     buffer[38..42].copy_from_slice(dst_ip);
 
     // Ethernet frame
-    let mut eth_buffer = [0u8; 42];
-    let len = build_frame(&mut eth_buffer, dst_mac, &our_mac, ETHERTYPE_ARP, &buffer[14..]);
+    let mut eth_buffer = [0u8; 64];
+    let len = build_frame(&mut eth_buffer, dst_mac, &our_mac, ETHERTYPE_ARP, &buffer[14..42]);
 
     virtio::send_packet(&eth_buffer[..len]);
 }

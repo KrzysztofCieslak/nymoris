@@ -5,7 +5,7 @@ use crate::net::arp;
 use crate::net;
 
 // Agent configuration
-const POLL_INTERVAL_MS: u64 = 30000; // 30 seconds between polls
+const POLL_INTERVAL_TICKS: u64 = 600; // ~600 ticks (~30s at default 18Hz PIT)
 const API_IP: [u8; 4] = [10, 0, 2, 2];
 const API_PORT: u16 = 8765;
 const API_PATH: &str = "/api/chat";
@@ -49,7 +49,7 @@ pub fn start() {
         AGENT_ENABLED = true;
         AGENT_STATE = AgentState::Idle;
         LAST_POLL_TICKS = TICKS;
-        println!("[AGENT] Started - polling every {} seconds", POLL_INTERVAL_MS / 1000);
+        println!("[AGENT] Started - polling every {} ticks (~{}s)", POLL_INTERVAL_TICKS, POLL_INTERVAL_TICKS / 18);
     }
 }
 
@@ -80,7 +80,7 @@ pub fn tick() {
 
         // Simple timing: each tick is roughly 1ms (based on timer interrupt)
         // In reality this depends on timer frequency, but for MVP this is fine
-        if TICKS - LAST_POLL_TICKS < POLL_INTERVAL_MS {
+        if TICKS - LAST_POLL_TICKS < POLL_INTERVAL_TICKS {
             return;
         }
         LAST_POLL_TICKS = TICKS;

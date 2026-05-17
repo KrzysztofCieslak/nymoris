@@ -1,4 +1,5 @@
 use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{compiler_fence, Ordering};
 use crate::memory::virt_to_phys;
 use crate::pci::PciDevice;
 
@@ -254,8 +255,8 @@ unsafe fn write_common_cfg_u64(dev: &VirtioNetDevice, offset: u32, val: u64) {
 unsafe fn notify_queue(dev: &VirtioNetDevice, queue_index: u16) {
     let bar = get_bar_address(&dev.pci, dev.notify_cfg_bar);
     // Read queue_notify_off from common cfg for this queue
-    write_common_cfg_u16(dev, 0x0E, queue_index); // queue_select
-    let notify_off = read_common_cfg_u16(dev, 0x16); // queue_notify_off
+    write_common_cfg_u16(dev, 0x16, queue_index); // queue_select
+    let notify_off = read_common_cfg_u16(dev, 0x1E); // queue_notify_off
     let notify_addr = bar + dev.notify_cfg_offset as u64 + (notify_off as u64 * dev.notify_off_multiplier as u64);
     write_bar_u16(notify_addr, 0, queue_index);
 }
@@ -326,9 +327,8 @@ unsafe fn parse_virtio_caps(dev: &PciDevice) -> Option<VirtioNetDevice> {
                 VIRTIO_PCI_CAP_NOTIFY_CFG => {
                     net_dev.notify_cfg_bar = cap.bar;
                     net_dev.notify_cfg_offset = cap.offset;
-                    // Read notify_off_multiplier from the capability data
-                    let bar = get_bar_address(dev, cap.bar);
-                    net_dev.notify_off_multiplier = read_bar_u32(bar, cap.offset + cap.length - 4);
+                    // Read notify_off_multiplier from PCI config space (offset 16 within capability)
+                    net_dev.notify_off_multiplier = pci_read_config_dword(dev, cap_offset + 16);
                     found_notify = true;
                     crate::println!("[NET] Notify cfg: bar={}, offset={}, multiplier={}",
                         cap.bar, cap.offset, net_dev.notify_off_multiplier);
@@ -403,10 +403,10 @@ unsafe fn negotiate_features(dev: &VirtioNetDevice) -> bool {
 
 unsafe fn setup_queue(dev: &VirtioNetDevice, queue_index: u16, queue: &mut Queue) -> bool {
     // Select queue
-    write_common_cfg_u16(dev, 0x0E, queue_index);
+    write_common_cfg_u16(dev, 0x16, queue_index);
 
     // Read queue size
-    let queue_size = read_common_cfg_u16(dev, 0x10);
+    let queue_size = read_common_cfg_u16(dev, 0x18);
     crate::println!("[NET] Queue {} size: {}", queue_index, queue_size);
 
     if queue_size < QUEUE_SIZE {
@@ -415,10 +415,7 @@ unsafe fn setup_queue(dev: &VirtioNetDevice, queue_index: u16, queue: &mut Queue
     }
 
     // Set queue size
-    write_common_cfg_u16(dev, 0x10, QUEUE_SIZE);
-
-    // Clear queue_enable
-    write_common_cfg_u16(dev, 0x18, 0);
+    write_common_cfg_u16(dev, 0x18, QUEUE_SIZE);
 
     // Set descriptor table physical address
     let desc_phys = virt_to_phys(queue.desc.as_ptr() as u64);
@@ -433,7 +430,7 @@ unsafe fn setup_queue(dev: &VirtioNetDevice, queue_index: u16, queue: &mut Queue
     write_common_cfg_u64(dev, 0x30, used_phys);
 
     // Enable queue
-    write_common_cfg_u16(dev, 0x18, 1);
+    write_common_cfg_u16(dev, 0x1C, 1);
 
     crate::println!("[NET] Queue {} setup: desc={:x} avail={:x} used={:x}",
         queue_index, desc_phys, avail_phys, used_phys);
@@ -480,6 +477,10 @@ unsafe fn add_rx_buffer(queue: &mut Queue, buf: &mut [u8; PACKET_SIZE], index: u
 
     let avail_idx = queue.avail.idx % QUEUE_SIZE;
     queue.avail.ring[avail_idx as usize] = index as u16;
+
+    // Memory barrier: ensure ring update is visible before idx update
+    compiler_fence(Ordering::SeqCst);
+
     queue.avail.idx = queue.avail.idx.wrapping_add(1);
 }
 
@@ -527,9 +528,6 @@ pub unsafe fn init_controller() {
         add_rx_buffer(&mut RX_QUEUE, &mut RX_BUFFERS[i as usize], i as usize);
     }
 
-    // Notify device about RX buffers
-    notify_queue(&net_dev, RX_QUEUE_INDEX);
-
     // Setup TX queue
     if !setup_queue(&net_dev, TX_QUEUE_INDEX, &mut TX_QUEUE) {
         return;
@@ -538,6 +536,9 @@ pub unsafe fn init_controller() {
     // Set DRIVER_OK
     write_common_cfg_u8(&net_dev, 0x14,
         VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK | VIRTIO_STATUS_DRIVER_OK);
+
+    // Notify device about RX buffers AFTER DRIVER_OK
+    notify_queue(&net_dev, RX_QUEUE_INDEX);
 
     crate::println!("[NET] VirtIO-net initialized successfully");
 
@@ -556,13 +557,21 @@ pub fn send_packet(data: &[u8]) -> bool {
     unsafe {
         let dev = match &DEVICE {
             Some(d) => d,
-            None => return false,
+            None => {
+                crate::println!("[NET] send_packet: no device");
+                return false;
+            }
         };
 
         if data.len() > PACKET_SIZE - 12 {
             crate::println!("[NET] Packet too large: {}", data.len());
             return false;
         }
+
+        crate::println!("[NET] TX: {} bytes, dst={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} ethertype={:#04x}",
+            data.len(),
+            data[0], data[1], data[2], data[3], data[4], data[5],
+            if data.len() >= 14 { u16::from_be_bytes([data[12], data[13]]) } else { 0 });
 
         // VirtIO-net header: 12 bytes (flags + gso_type + hdr_len + gso_size + csum_start + csum_offset)
         // For simple transmit without offload, all zeros
@@ -577,6 +586,8 @@ pub fn send_packet(data: &[u8]) -> bool {
         let desc_idx = 0;
         let phys = virt_to_phys(TX_BUFFER.as_ptr() as u64);
 
+        crate::println!("[NET] TX desc: phys={:x} len={} avail_idx={}", phys, total_len, TX_QUEUE.avail.idx);
+
         TX_QUEUE.desc[desc_idx] = VringDesc {
             addr: phys,
             len: total_len as u32,
@@ -586,10 +597,21 @@ pub fn send_packet(data: &[u8]) -> bool {
 
         let avail_idx = TX_QUEUE.avail.idx % QUEUE_SIZE;
         TX_QUEUE.avail.ring[avail_idx as usize] = desc_idx as u16;
+
+        // Memory barrier: ensure descriptor and ring updates are visible before idx update
+        compiler_fence(Ordering::SeqCst);
+
         TX_QUEUE.avail.idx = TX_QUEUE.avail.idx.wrapping_add(1);
+
+        // Memory barrier: ensure idx update is visible before notification
+        compiler_fence(Ordering::SeqCst);
+
+        crate::println!("[NET] TX notifying queue {}", TX_QUEUE_INDEX);
 
         // Notify device
         notify_queue(dev, TX_QUEUE_INDEX);
+
+        crate::println!("[NET] TX done");
 
         true
     }
@@ -611,9 +633,17 @@ pub fn receive_packet(buffer: &mut [u8]) -> Option<usize> {
             return None;
         }
 
-        let used_elem = &RX_QUEUE.used.ring[(LAST_USED_IDX % QUEUE_SIZE) as usize];
+        // Memory barrier: ensure we see all device writes before reading used elem
+        compiler_fence(Ordering::SeqCst);
+
+        crate::println!("[NET] RX used: last={} idx={}", LAST_USED_IDX, used_idx);
+
+        let used_elem_ptr = core::ptr::addr_of!(RX_QUEUE.used.ring[(LAST_USED_IDX % QUEUE_SIZE) as usize]);
+        let used_elem = core::ptr::read_volatile(used_elem_ptr);
         let desc_idx = used_elem.id as usize;
         let len = used_elem.len as usize;
+
+        crate::println!("[NET] RX used_elem: desc={} len={}", desc_idx, len);
 
         // Skip virtio-net header (12 bytes)
         let data_len = if len > 12 { len - 12 } else { 0 };
@@ -623,6 +653,10 @@ pub fn receive_packet(buffer: &mut [u8]) -> Option<usize> {
 
         // Re-add buffer to RX queue
         add_rx_buffer(&mut RX_QUEUE, &mut RX_BUFFERS[desc_idx], desc_idx);
+
+        // Memory barrier: ensure buffer is re-added before notifying
+        compiler_fence(Ordering::SeqCst);
+
         notify_queue(dev, RX_QUEUE_INDEX);
 
         LAST_USED_IDX = LAST_USED_IDX.wrapping_add(1);
@@ -635,10 +669,28 @@ pub fn receive_packet(buffer: &mut [u8]) -> Option<usize> {
     }
 }
 
+unsafe fn read_isr_status(dev: &VirtioNetDevice) -> u8 {
+    let bar = get_bar_address(&dev.pci, dev.isr_cfg_bar);
+    read_bar_u8(bar, dev.isr_cfg_offset)
+}
+
 pub fn poll_packets() {
     unsafe {
+        // Read ISR status to clear any pending interrupts
+        if let Some(dev) = &DEVICE {
+            let isr = read_isr_status(dev);
+            if isr != 0 {
+                crate::println!("[NET] ISR status: {:#02x}", isr);
+            }
+        }
+
         let mut buffer = [0u8; PACKET_SIZE];
         while let Some(len) = receive_packet(&mut buffer) {
+            // Debug: print packet info
+            if len >= 14 {
+                let ethertype = u16::from_be_bytes([buffer[12], buffer[13]]);
+                crate::println!("[NET] RX packet: {} bytes, ethertype={:#04x}", len, ethertype);
+            }
             crate::net::handle_packet(&buffer[..len]);
         }
     }

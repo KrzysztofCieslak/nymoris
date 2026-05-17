@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net};
+use nymoris::{gdt, idt, interrupts, keyboard, shell, framebuffer, usb, memory, net, agent};
 use nymoris::println;
 
 #[panic_handler]
@@ -99,6 +99,7 @@ pub extern "C" fn _start() -> ! {
     println!("[OK] Network initialized");
 
     agent::init();
+    agent::start();
 
     println!("\nWelcome to Nymoris! Type 'help' for available commands.\n");
 

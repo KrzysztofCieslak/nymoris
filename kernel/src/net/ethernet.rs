@@ -31,7 +31,9 @@ pub fn parse_frame(data: &[u8]) -> Option<EthernetFrame> {
 }
 
 pub fn build_frame(buffer: &mut [u8], dst_mac: &[u8; 6], src_mac: &[u8; 6], ethertype: u16, payload: &[u8]) -> usize {
-    let total_len = 14 + payload.len();
+    // Minimum Ethernet payload is 46 bytes (60 bytes total frame without FCS)
+    let padded_len = payload.len().max(46);
+    let total_len = 14 + padded_len;
     if buffer.len() < total_len {
         panic!("Ethernet frame buffer too small");
     }
@@ -39,7 +41,11 @@ pub fn build_frame(buffer: &mut [u8], dst_mac: &[u8; 6], src_mac: &[u8; 6], ethe
     buffer[0..6].copy_from_slice(dst_mac);
     buffer[6..12].copy_from_slice(src_mac);
     buffer[12..14].copy_from_slice(&ethertype.to_be_bytes());
-    buffer[14..total_len].copy_from_slice(payload);
+    buffer[14..14 + payload.len()].copy_from_slice(payload);
+    // Pad with zeros if needed
+    for i in (14 + payload.len())..total_len {
+        buffer[i] = 0;
+    }
 
     total_len
 }
