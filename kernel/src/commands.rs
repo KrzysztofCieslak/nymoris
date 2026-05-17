@@ -25,6 +25,7 @@ pub fn execute(line: &str) {
         "agent" => cmd_agent(args),
         "alloctest" => cmd_alloctest(),
         "heaptest" => cmd_heaptest(),
+        "pagetest" => cmd_pagetest(),
         _ => println!("Unknown command: '{}'. Type 'help' for list.", cmd),
     }
 }
@@ -45,6 +46,7 @@ fn cmd_help() {
     println!("  agent    - Agent control: agent start | agent stop | agent status");
     println!("  alloctest - Test page frame allocator");
     println!("  heaptest  - Test kernel heap allocator");
+    println!("  pagetest  - Test paging and virtual memory");
 }
 
 fn cmd_echo(args: &str) {
@@ -322,4 +324,72 @@ fn cmd_alloctest() {
     } else {
         println!("[ALLOCTEST] FAIL: page leak detected");
     }
+}
+
+fn cmd_pagetest() {
+    use x86_64::structures::paging::PageTableFlags;
+
+    println!("[PAGETEST] Testing paging...");
+
+    // Allocate a physical page
+    let phys = match memory::allocator::alloc_page() {
+        Some(p) => p,
+        None => {
+            println!("[PAGETEST] FAIL: could not allocate physical page");
+            return;
+        }
+    };
+
+    // Choose a test virtual address in the lower half (not used by kernel)
+    let test_virt: u64 = 0x1000; // first page after null
+
+    println!("[PAGETEST] Mapping virt {:x} -> phys {:x}", test_virt, phys);
+
+    unsafe {
+        // Write a known value to the physical page
+        core::ptr::write_bytes(phys as *mut u8, 0xAB, 4096);
+
+        // Map the page
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+        if !memory::paging::map_page(test_virt, phys, flags) {
+            println!("[PAGETEST] FAIL: map_page returned false");
+            memory::allocator::free_page(phys);
+            return;
+        }
+
+        // Verify translation
+        match memory::paging::virt_to_phys_current(test_virt) {
+            Some(translated) => {
+                if translated == phys {
+                    println!("[PAGETEST] Translation OK: {:x} -> {:x}", test_virt, translated);
+                } else {
+                    println!("[PAGETEST] FAIL: expected phys {:x}, got {:x}", phys, translated);
+                }
+            }
+            None => {
+                println!("[PAGETEST] FAIL: virt_to_phys_current returned None");
+            }
+        }
+
+        // Verify we can read the mapped virtual address
+        let val = core::ptr::read_volatile(test_virt as *const u8);
+        if val == 0xAB {
+            println!("[PAGETEST] Readback OK: 0xAB at virt {:x}", test_virt);
+        } else {
+            println!("[PAGETEST] FAIL: expected 0xAB, got 0x{:x}", val);
+        }
+
+        // Unmap
+        memory::paging::unmap_page(test_virt);
+        println!("[PAGETEST] Unmapped");
+
+        // Verify translation is gone
+        match memory::paging::virt_to_phys_current(test_virt) {
+            Some(p) => println!("[PAGETEST] FAIL: still mapped to {:x}", p),
+            None => println!("[PAGETEST] Translation removed OK"),
+        }
+    }
+
+    memory::allocator::free_page(phys);
+    println!("[PAGETEST] PASS");
 }

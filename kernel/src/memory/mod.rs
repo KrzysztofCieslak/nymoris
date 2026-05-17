@@ -1,5 +1,6 @@
 pub mod allocator;
 pub mod heap;
+pub mod paging;
 
 use crate::println;
 
