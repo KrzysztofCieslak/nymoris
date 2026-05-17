@@ -6,10 +6,11 @@
 
 typedef unsigned long size_t;
 
-// Syscalls provided by init.c
+// Syscalls and print functions provided by init.c
 extern int sys_open(const char *path, int flags, int mode);
 extern void sys_close(int fd);
 extern int sys_read(int fd, char *buf, size_t len);
+extern void printn(const char *s);
 
 // ============================================================================
 // Math
@@ -56,6 +57,9 @@ static void softmax(float *x, int n) {
 }
 
 static void layer_norm(float *x, int n, float *weight, float *bias) {
+    if (!x) { printn("[LLM] layer_norm: x is NULL"); return; }
+    if (!weight) { printn("[LLM] layer_norm: weight is NULL"); return; }
+    if (!bias) { printn("[LLM] layer_norm: bias is NULL"); return; }
     float mean = 0.0f;
     for (int i = 0; i < n; i++) mean += x[i];
     mean /= n;
@@ -104,9 +108,12 @@ static char llm_arena[200 * 1024 * 1024]; // 200MB
 static int llm_arena_pos = 0;
 
 static void* llm_alloc(int size) {
-    // Align to 64 bytes
-    while (llm_arena_pos % 64 != 0) llm_arena_pos++;
-    if (llm_arena_pos + size > (int)sizeof(llm_arena)) return 0;
+    // Align to 4 bytes for float access
+    while (llm_arena_pos % 4 != 0) llm_arena_pos++;
+    if (llm_arena_pos + size > (int)sizeof(llm_arena)) {
+        printn("[LLM] arena overflow");
+        return 0;
+    }
     void *p = &llm_arena[llm_arena_pos];
     llm_arena_pos += size;
     return p;
@@ -263,12 +270,53 @@ static int load_model(const char *path, Model *m) {
     m->key_cache = llm_alloc(nl * nc * ne * sizeof(float));
     m->value_cache = llm_alloc(nl * nc * ne * sizeof(float));
 
-    // Read weights from file
-    char *wptr = (char*)m->tok_emb;
-    int wsize = llm_arena_pos - ((char*)m->tok_emb - llm_arena);
-    // Read rest of file directly into arena
-    int read_total = 0;
-    while ((n = sys_read(fd, wptr + read_total, wsize - read_total)) > 0) read_total += n;
+    sys_close(fd);
+
+    // Read weights from file — each tensor individually to match arena layout
+    fd = sys_open(path, 0, 0);
+    if (fd < 0) return -1;
+    // Skip header
+    char skip[64];
+    sys_read(fd, skip, 64);
+
+    // Helper to read a float tensor
+    #define READ_TENSOR(ptr, count) do { \
+        int total = 0; \
+        int need = (count) * sizeof(float); \
+        char *dst = (char*)(ptr); \
+        while (total < need) { \
+            int r = sys_read(fd, dst + total, need - total); \
+            if (r <= 0) break; \
+            total += r; \
+        } \
+    } while(0)
+
+    READ_TENSOR(m->tok_emb, nv * ne);
+    READ_TENSOR(m->pos_emb, nc * ne);
+
+    for (int l = 0; l < nl; l++) {
+        READ_TENSOR(m->attn_norm_w[l], ne);
+        READ_TENSOR(m->attn_norm_b[l], ne);
+        READ_TENSOR(m->q_w[l], ne * ne);
+        READ_TENSOR(m->q_b[l], ne);
+        READ_TENSOR(m->k_w[l], ne * ne);
+        READ_TENSOR(m->k_b[l], ne);
+        READ_TENSOR(m->v_w[l], ne * ne);
+        READ_TENSOR(m->v_b[l], ne);
+        READ_TENSOR(m->o_w[l], ne * ne);
+        READ_TENSOR(m->o_b[l], ne);
+        READ_TENSOR(m->ffn_norm_w[l], ne);
+        READ_TENSOR(m->ffn_norm_b[l], ne);
+        READ_TENSOR(m->ffn_up_w[l], ne * nf);
+        READ_TENSOR(m->ffn_up_b[l], nf);
+        READ_TENSOR(m->ffn_down_w[l], nf * ne);
+        READ_TENSOR(m->ffn_down_b[l], ne);
+    }
+
+    READ_TENSOR(m->final_norm_w, ne);
+    READ_TENSOR(m->final_norm_b, ne);
+    READ_TENSOR(m->lm_head_w, ne * nv);
+
     sys_close(fd);
 
     // Zero KV cache
@@ -293,13 +341,21 @@ typedef struct {
     int *token_lens;
 } Tokenizer;
 
+static char vocab_buf[8 * 1024 * 1024]; // 8MB vocab buffer (static to avoid stack overflow)
+
 static int load_tokenizer(const char *path, Tokenizer *t) {
-    char buf[8 * 1024 * 1024]; // 8MB vocab buffer
-    int size = read_file(path, buf, sizeof(buf));
-    if (size < 4) return -1;
+    char *buf = vocab_buf;
+    int size = read_file(path, buf, sizeof(vocab_buf));
+    if (size < 4) {
+        printn("[LLM] vocab file too small");
+        return -1;
+    }
 
     t->n_tokens = *(int*)buf;
-    if (t->n_tokens <= 0 || t->n_tokens > 100000) return -1;
+    if (t->n_tokens <= 0 || t->n_tokens > 100000) {
+        printn("[LLM] n_tokens bad");
+        return -1;
+    }
 
     t->tokens = llm_alloc(t->n_tokens * sizeof(unsigned char*));
     t->token_lens = llm_alloc(t->n_tokens * sizeof(int));
@@ -524,27 +580,36 @@ int llm_generate(const char *model_path, const char *prompt, char *output, int m
     llm_reset();
 
     Model m;
-    if (load_model(model_path, &m) < 0) return -1;
+    if (load_model(model_path, &m) < 0) {
+        printn("[LLM] load_model failed");
+        return -1;
+    }
+    printn("[LLM] model loaded ok");
 
     Tokenizer t;
-    // Vocab file is model_path with .vocab extension
+    // Vocab file is model_path + .vocab
     char vocab_path[256];
     int i = 0;
-    while (model_path[i] && model_path[i] != '.' && i < 250) {
+    while (model_path[i] && i < 250) {
         vocab_path[i] = model_path[i]; i++;
     }
-    vocab_path[i] = '\0';
-    // Append .vocab
     const char *ext = ".vocab";
     int j = 0;
-    while (ext[j]) vocab_path[i++] = ext[j++];
+    while (ext[j] && i < 255) vocab_path[i++] = ext[j++];
     vocab_path[i] = '\0';
 
-    if (load_tokenizer(vocab_path, &t) < 0) return -1;
+    if (load_tokenizer(vocab_path, &t) < 0) {
+        printn("[LLM] load_tokenizer failed");
+        return -1;
+    }
+    printn("[LLM] tokenizer loaded ok");
 
     int tokens[512];
     int n_tokens = encode(&t, prompt, tokens, 512);
-    if (n_tokens == 0) return -1;
+    if (n_tokens == 0) {
+        printn("[LLM] encode returned 0 tokens");
+        return -1;
+    }
 
     int pos = n_tokens - 1;
     float *logits = llm_alloc(m.n_vocab * sizeof(float));

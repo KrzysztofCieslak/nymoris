@@ -224,12 +224,12 @@ static void print(const char *s) {
     sys_write(1, s, strlen_(s));
 }
 
-static void printn(const char *s) {
+void printn(const char *s) {
     print(s);
     print("\n");
 }
 
-static void print_int(int n) {
+void print_int(int n) {
     char buf[16];
     int i = 15;
     buf[i--] = '\0';
@@ -288,7 +288,7 @@ static void read_line(void) {
         char c;
         int n = sys_read(0, &c, 1);
         if (n <= 0) break;
-        if (c == '\n') break;
+        if (c == '\n' || c == '\r') break;
         linebuf[linepos++] = c;
     }
     linebuf[linepos] = '\0';
@@ -822,6 +822,9 @@ static void shell_loop(void) {
 }
 
 void _start(void) {
+    // Align stack to 16 bytes for SSE compatibility
+    asm volatile("andq $-16, %%rsp" ::: "memory");
+
     // Open /dev/console for stdin/stdout/stderr
     int fd = sys_open("/dev/console", 2, 0); // O_RDWR
     if (fd >= 0) {
