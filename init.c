@@ -1973,9 +1973,40 @@ static void write_file(const char *path, const char *content) {
     printn(path);
 }
 
+static void agent_auto_loop(int max_iter, int interval_secs) {
+    if (max_iter <= 0) max_iter = 10;
+    if (interval_secs <= 0) interval_secs = 5;
+    printn("\n[AGENT] Autonomous mode started.");
+    print("[AGENT] Max iterations: "); print_int(max_iter); printn("");
+    print("[AGENT] Interval: "); print_int(interval_secs); printn(" seconds");
+    printn("[AGENT] Press Ctrl+C or type 'interrupt' to stop (not implemented).");
+
+    for (int iter = 0; iter < max_iter; iter++) {
+        print("\n[AGENT] === Iteration "); print_int(iter + 1); print(" / "); print_int(max_iter); printn(" ===");
+
+        char prompt[512];
+        int p = 0;
+        const char *s = "You are running autonomously on Nymoris OS. Decide what to do next. ";
+        while (*s) prompt[p++] = *s++;
+        s = "Available: exec <shell_cmd>, run <binary>, read <file>, write <file> <content>, http <host> [path]. ";
+        while (*s) prompt[p++] = *s++;
+        s = "Be concise. Execute one tool per response.";
+        while (*s) prompt[p++] = *s++;
+        prompt[p] = '\0';
+
+        ask_ai(prompt);
+
+        if (iter < max_iter - 1) {
+            do_sleep(interval_secs);
+        }
+    }
+
+    printn("\n[AGENT] Autonomous mode completed.");
+}
+
 static void agent_loop(void) {
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, history, reset, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
 
     while (1) {
         print("[AGENT] > ");
@@ -2003,6 +2034,24 @@ static void agent_loop(void) {
             } else {
                 printn("[AGENT] Usage: ask <prompt>");
             }
+        } else if (strcmp_(action, "auto") == 0) {
+            int max_iter = 10;
+            int interval = 5;
+            if (arg) {
+                char *p = arg;
+                max_iter = 0;
+                while (*p >= '0' && *p <= '9') {
+                    max_iter = max_iter * 10 + (*p - '0');
+                    p++;
+                }
+                while (*p == ' ') p++;
+                interval = 0;
+                while (*p >= '0' && *p <= '9') {
+                    interval = interval * 10 + (*p - '0');
+                    p++;
+                }
+            }
+            agent_auto_loop(max_iter, interval);
         } else if (strcmp_(action, "history") == 0) {
             agent_history_print();
         } else if (strcmp_(action, "reset") == 0) {
