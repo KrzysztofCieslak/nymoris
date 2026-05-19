@@ -9,6 +9,7 @@
 #define SYS_mkdir    83
 #define SYS_mknod    133
 #define SYS_dup2     33
+#define SYS_pipe     22
 #define SYS_socket   41
 #define SYS_connect  42
 #define SYS_sendto   44
@@ -69,6 +70,17 @@ void sys_close(int fd) {
         : : "a"(SYS_close), "D"(fd)
         : "rcx", "r11", "memory"
     );
+}
+
+static int sys_dup2(int oldfd, int newfd) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_dup2), "D"(oldfd), "S"(newfd)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
 }
 
 static void sys_exit(int code) {
@@ -250,6 +262,17 @@ static int sys_kill(int pid, int sig) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_kill), "D"(pid), "S"(sig)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_pipe(int pipefd[2]) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_pipe), "D"(pipefd)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -1765,6 +1788,7 @@ static char agent_roles[MAX_AGENT_HISTORY][16];
 static char agent_msgs[MAX_AGENT_HISTORY][AGENT_MSG_LEN];
 static int agent_history_count = 0;
 static int agent_history_next = 0;
+static int agent_auto_mode = 0;
 
 static void agent_history_add(const char *role, const char *content) {
     int idx = agent_history_next % MAX_AGENT_HISTORY;
@@ -1796,6 +1820,28 @@ static void agent_history_print(void) {
         print("["); print(agent_roles[idx]); print("] ");
         printn(agent_msgs[idx]);
     }
+}
+
+static int capture_setup(int pipefd[2]) {
+    if (sys_pipe(pipefd) < 0) return -1;
+    sys_dup2(1, 61);
+    sys_dup2(2, 60);
+    sys_dup2(pipefd[1], 1);
+    sys_dup2(pipefd[1], 2);
+    sys_close(pipefd[1]);
+    return 0;
+}
+
+static int capture_finish(int pipefd[2], char *out, int outlen) {
+    sys_dup2(61, 1);
+    sys_dup2(60, 2);
+    sys_close(61);
+    sys_close(60);
+    int n = sys_read(pipefd[0], out, outlen - 1);
+    sys_close(pipefd[0]);
+    if (n < 0) n = 0;
+    out[n] = '\0';
+    return n;
 }
 
 static void append_json_string(char *buf, int *pos, int max, const char *s) {
@@ -1853,7 +1899,18 @@ static void ask_ai(const char *prompt) {
         // Auto-execute if it looks like a tool call
         if (starts_with(content, "run ")) {
             printn("[AGENT] Executing: run");
-            run_command(content + 4);
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                run_command(content + 4);
+                if (cap == 0) {
+                    char out[2048];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                run_command(content + 4);
+            }
         } else if (starts_with(content, "exec ")) {
             printn("[AGENT] Executing: exec");
             char saved[1024];
@@ -1871,7 +1928,18 @@ static void ask_ai(const char *prompt) {
             }
             linebuf[i] = '\0';
             linepos = i;
-            dispatch_command();
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                dispatch_command();
+                if (cap == 0) {
+                    char out[2048];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                dispatch_command();
+            }
             i = 0;
             while (saved[i]) {
                 linebuf[i] = saved[i];
@@ -1881,7 +1949,18 @@ static void ask_ai(const char *prompt) {
             linepos = i;
         } else if (starts_with(content, "read ")) {
             printn("[AGENT] Executing: read");
-            cat_file(content + 5);
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                cat_file(content + 5);
+                if (cap == 0) {
+                    char out[2048];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                cat_file(content + 5);
+            }
         } else if (starts_with(content, "write ")) {
             printn("[AGENT] Executing: write");
             char *wp = content + 6;
@@ -1894,7 +1973,12 @@ static void ask_ai(const char *prompt) {
                     break;
                 }
             }
-            if (wcontent) write_file(wpath, wcontent);
+            if (wcontent) {
+                write_file(wpath, wcontent);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "File written successfully.");
+                }
+            }
         }
     } else {
         printn("[AGENT] Could not parse AI response");
@@ -1976,6 +2060,7 @@ static void write_file(const char *path, const char *content) {
 static void agent_auto_loop(int max_iter, int interval_secs) {
     if (max_iter <= 0) max_iter = 10;
     if (interval_secs <= 0) interval_secs = 5;
+    agent_auto_mode = 1;
     printn("\n[AGENT] Autonomous mode started.");
     print("[AGENT] Max iterations: "); print_int(max_iter); printn("");
     print("[AGENT] Interval: "); print_int(interval_secs); printn(" seconds");
@@ -2001,6 +2086,7 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
         }
     }
 
+    agent_auto_mode = 0;
     printn("\n[AGENT] Autonomous mode completed.");
 }
 
@@ -2746,8 +2832,8 @@ static void shell_loop(void) {
                 continue;
             }
             saved_stdout = 63;
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(1), "S"(saved_stdout) : "rcx", "r11", "memory");
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(fd), "S"(1) : "rcx", "r11", "memory");
+            sys_dup2(1, saved_stdout);
+            sys_dup2(fd, 1);
             sys_close(fd);
         }
 
@@ -2760,8 +2846,8 @@ static void shell_loop(void) {
                 continue;
             }
             saved_stdin = 62;
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(0), "S"(saved_stdin) : "rcx", "r11", "memory");
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(fd), "S"(0) : "rcx", "r11", "memory");
+            sys_dup2(0, saved_stdin);
+            sys_dup2(fd, 0);
             sys_close(fd);
         }
 
@@ -2771,22 +2857,22 @@ static void shell_loop(void) {
             if (pid > 0) {
                 jobs_add(pid, linebuf);
                 if (saved_stdout >= 0) {
-                    asm volatile("syscall" : : "a"(SYS_dup2), "D"(saved_stdout), "S"(1) : "rcx", "r11", "memory");
+                    sys_dup2(saved_stdout, 1);
                     sys_close(saved_stdout);
                 }
                 if (saved_stdin >= 0) {
-                    asm volatile("syscall" : : "a"(SYS_dup2), "D"(saved_stdin), "S"(0) : "rcx", "r11", "memory");
+                    sys_dup2(saved_stdin, 0);
                     sys_close(saved_stdin);
                 }
                 continue;
             } else if (pid < 0) {
                 printn("fork failed");
                 if (saved_stdout >= 0) {
-                    asm volatile("syscall" : : "a"(SYS_dup2), "D"(saved_stdout), "S"(1) : "rcx", "r11", "memory");
+                    sys_dup2(saved_stdout, 1);
                     sys_close(saved_stdout);
                 }
                 if (saved_stdin >= 0) {
-                    asm volatile("syscall" : : "a"(SYS_dup2), "D"(saved_stdin), "S"(0) : "rcx", "r11", "memory");
+                    sys_dup2(saved_stdin, 0);
                     sys_close(saved_stdin);
                 }
                 continue;
@@ -2808,11 +2894,11 @@ static void shell_loop(void) {
             sys_exit(0);
         }
         if (saved_stdout >= 0) {
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(saved_stdout), "S"(1) : "rcx", "r11", "memory");
+            sys_dup2(saved_stdout, 1);
             sys_close(saved_stdout);
         }
         if (saved_stdin >= 0) {
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(saved_stdin), "S"(0) : "rcx", "r11", "memory");
+            sys_dup2(saved_stdin, 0);
             sys_close(saved_stdin);
         }
     }
@@ -2826,13 +2912,13 @@ void _start(void) {
     int fd = sys_open("/dev/console", 2, 0); // O_RDWR
     if (fd >= 0) {
         if (fd != 0) {
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(fd), "S"(0) : "rcx", "r11", "memory");
+            sys_dup2(fd, 0);
         }
         if (fd != 1) {
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(fd), "S"(1) : "rcx", "r11", "memory");
+            sys_dup2(fd, 1);
         }
         if (fd != 2) {
-            asm volatile("syscall" : : "a"(SYS_dup2), "D"(fd), "S"(2) : "rcx", "r11", "memory");
+            sys_dup2(fd, 2);
         }
         if (fd > 2) {
             sys_close(fd);

@@ -4,7 +4,7 @@ INIT_SRC := init.c llm.c
 INIT_BIN := /tmp/nymoris-init
 
 CC := x86_64-elf-gcc
-CFLAGS := -nostdlib -static -O2 -fno-builtin -fno-tree-vectorize
+CFLAGS := -nostdlib -static -O2 -fno-builtin -fno-tree-vectorize -fno-inline
 
 .PHONY: all build run run-gui clean
 
