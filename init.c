@@ -1651,6 +1651,8 @@ static void do_wget(const char *host, const char *path, const char *outfile) {
     printn(outfile);
 }
 
+static char api_key[256];
+
 static int do_http_post_body(const char *host, const char *path, const char *body, char *resp, int resp_max) {
     uint32_t ip = dns_resolve(host);
     if (ip == 0) return -1;
@@ -1680,7 +1682,17 @@ static int do_http_post_body(const char *host, const char *path, const char *bod
     while (*p) req[len++] = *p++;
     p = host;
     while (*p) req[len++] = *p++;
-    p = "\r\nContent-Type: application/json\r\nContent-Length: ";
+    p = "\r\nContent-Type: application/json";
+    while (*p) req[len++] = *p++;
+
+    if (api_key[0]) {
+        p = "\r\nAuthorization: Bearer ";
+        while (*p) req[len++] = *p++;
+        int k = 0;
+        while (api_key[k]) req[len++] = api_key[k++];
+    }
+
+    p = "\r\nContent-Length: ";
     while (*p) req[len++] = *p++;
 
     int body_len = 0;
@@ -1778,6 +1790,47 @@ static int json_extract_string(const char *json, const char *key, char *out, int
 
 static char api_host[64] = "10.0.2.2";
 static char api_path[128] = "/v1/chat/completions";
+static char api_key[256] = "";
+static char api_model[64] = "gpt-3.5-turbo";
+
+static void agent_load_config(void) {
+    const char *key = env_get("NYMORIS_API_KEY");
+    if (key) {
+        int i = 0;
+        while (key[i] && i < sizeof(api_key) - 1) {
+            api_key[i] = key[i];
+            i++;
+        }
+        api_key[i] = '\0';
+    }
+    const char *host = env_get("NYMORIS_API_HOST");
+    if (host) {
+        int i = 0;
+        while (host[i] && i < sizeof(api_host) - 1) {
+            api_host[i] = host[i];
+            i++;
+        }
+        api_host[i] = '\0';
+    }
+    const char *model = env_get("NYMORIS_API_MODEL");
+    if (model) {
+        int i = 0;
+        while (model[i] && i < sizeof(api_model) - 1) {
+            api_model[i] = model[i];
+            i++;
+        }
+        api_model[i] = '\0';
+    }
+    const char *path = env_get("NYMORIS_API_PATH");
+    if (path) {
+        int i = 0;
+        while (path[i] && i < sizeof(api_path) - 1) {
+            api_path[i] = path[i];
+            i++;
+        }
+        api_path[i] = '\0';
+    }
+}
 
 static void run_command(const char *cmd);
 static void write_file(const char *path, const char *content);
@@ -1854,7 +1907,11 @@ static void append_json_string(char *buf, int *pos, int max, const char *s) {
 static void ask_ai(const char *prompt) {
     char body[8192];
     int bl = 0;
-    const char *p = "{\"model\":\"gpt-3.5-turbo\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path]. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.\"}";
+    const char *p = "{\"model\":\"";
+    while (*p) body[bl++] = *p++;
+    int m = 0;
+    while (api_model[m]) body[bl++] = api_model[m++];
+    p = "\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path]. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.\"}";
     while (*p) body[bl++] = *p++;
 
     // Add conversation history
@@ -2091,8 +2148,10 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
 }
 
 static void agent_loop(void) {
+    agent_load_config();
+
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
 
     while (1) {
         print("[AGENT] > ");
@@ -2143,6 +2202,18 @@ static void agent_loop(void) {
         } else if (strcmp_(action, "reset") == 0) {
             agent_history_clear();
             printn("[AGENT] Conversation history cleared.");
+        } else if (strcmp_(action, "config") == 0) {
+            printn("[AGENT] Configuration:");
+            print("  API_HOST:  "); printn(api_host);
+            print("  API_PATH:  "); printn(api_path);
+            print("  API_MODEL: "); printn(api_model);
+            print("  API_KEY:   ");
+            if (api_key[0]) {
+                printn("***set***");
+            } else {
+                printn("(not set)");
+            }
+            printn("[AGENT] Set via env: NYMORIS_API_KEY, NYMORIS_API_HOST, NYMORIS_API_MODEL, NYMORIS_API_PATH");
         } else if (strcmp_(action, "run") == 0) {
             if (arg) {
                 run_command(arg);
