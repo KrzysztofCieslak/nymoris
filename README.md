@@ -300,6 +300,8 @@ Inside the `agent` loop:
 | `sleep <secs>` | Sleep |
 | `history` | Show conversation history |
 | `reset` | Clear conversation history |
+| `save [path]` | Save conversation history |
+| `load [path]` | Load conversation history |
 | `config` | Show API configuration |
 | `done` / `quit` | Exit agent loop |
 

@@ -2489,6 +2489,49 @@ static void agent_history_print(void) {
     }
 }
 
+static void agent_save_history(const char *path) {
+    int fd = sys_open(path, 0x241, 0644);
+    if (fd < 0) {
+        printn("[AGENT] Failed to save history");
+        return;
+    }
+    int start = agent_history_next - agent_history_count;
+    for (int i = 0; i < agent_history_count; i++) {
+        int idx = (start + i) % MAX_AGENT_HISTORY;
+        sys_write(fd, agent_roles[idx], strlen_(agent_roles[idx]) + 1);
+        sys_write(fd, agent_msgs[idx], strlen_(agent_msgs[idx]) + 1);
+    }
+    char end = '\0';
+    sys_write(fd, &end, 1);
+    sys_close(fd);
+    printn("[AGENT] History saved.");
+}
+
+static void agent_load_history(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) return;
+    agent_history_clear();
+    char role[16];
+    char content[AGENT_MSG_LEN];
+    while (1) {
+        int ri = 0;
+        char c;
+        while (ri < 15 && sys_read(fd, &c, 1) == 1 && c != '\0') {
+            role[ri++] = c;
+        }
+        if (ri == 0 && c == '\0') break;
+        role[ri] = '\0';
+        int ci = 0;
+        while (ci < AGENT_MSG_LEN - 1 && sys_read(fd, &c, 1) == 1 && c != '\0') {
+            content[ci++] = c;
+        }
+        content[ci] = '\0';
+        agent_history_add(role, content);
+    }
+    sys_close(fd);
+    printn("[AGENT] History loaded.");
+}
+
 static int capture_setup(int pipefd[2]) {
     if (sys_pipe(pipefd) < 0) return -1;
     sys_dup2(1, 61);
@@ -3398,9 +3441,10 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
 
 static void agent_loop(void) {
     agent_load_config();
+    agent_load_history("/data/agent.history");
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");
@@ -3424,6 +3468,7 @@ static void agent_loop(void) {
         }
 
         if (strcmp_(action, "done") == 0 || strcmp_(action, "quit") == 0) {
+            agent_save_history("/data/agent.history");
             printn("[AGENT] Exiting agent loop.");
             break;
         } else if (strcmp_(action, "ask") == 0) {
@@ -3455,6 +3500,12 @@ static void agent_loop(void) {
         } else if (strcmp_(action, "reset") == 0) {
             agent_history_clear();
             printn("[AGENT] Conversation history cleared.");
+        } else if (strcmp_(action, "save") == 0) {
+            const char *path = arg ? arg : "/data/agent.history";
+            agent_save_history(path);
+        } else if (strcmp_(action, "load") == 0) {
+            const char *path = arg ? arg : "/data/agent.history";
+            agent_load_history(path);
         } else if (strcmp_(action, "config") == 0) {
             printn("[AGENT] Configuration:");
             print("  API_HOST:  "); printn(api_host);
