@@ -342,6 +342,12 @@ static int sys_rt_sigaction(int sig, const void *act, void *oldact, int sigsetsi
     return ret;
 }
 
+static volatile int interrupted = 0;
+
+static void sigint_handler(int sig) {
+    interrupted = 1;
+}
+
 static void signal_ignore(int sig) {
     struct {
         void *handler;
@@ -349,6 +355,26 @@ static void signal_ignore(int sig) {
         void *restorer;
         unsigned long mask;
     } sa = { (void *)SIG_IGN, 0, NULL, 0 };
+    sys_rt_sigaction(sig, &sa, NULL, 8);
+}
+
+static void signal_default(int sig) {
+    struct {
+        void *handler;
+        unsigned long flags;
+        void *restorer;
+        unsigned long mask;
+    } sa = { (void *)0, 0, NULL, 0 };
+    sys_rt_sigaction(sig, &sa, NULL, 8);
+}
+
+static void signal_catch(int sig) {
+    struct {
+        void *handler;
+        unsigned long flags;
+        void *restorer;
+        unsigned long mask;
+    } sa = { (void *)sigint_handler, 0x04000000, NULL, 0 };
     sys_rt_sigaction(sig, &sa, NULL, 8);
 }
 
@@ -2542,8 +2568,10 @@ static void ask_ai(const char *prompt) {
 }
 
 static void do_sleep(int secs) {
-    struct { uint64_t sec; uint64_t nsec; } req = { secs, 0 };
-    sys_nanosleep(&req, NULL);
+    for (int i = 0; i < secs && !interrupted; i++) {
+        struct { uint64_t sec; uint64_t nsec; } req = { 1, 0 };
+        sys_nanosleep(&req, NULL);
+    }
 }
 
 static int parse_argv(const char *cmd, char **argv, int max_argc) {
@@ -2566,7 +2594,8 @@ static int parse_argv(const char *cmd, char **argv, int max_argc) {
 static void run_command(const char *cmd) {
     int pid = sys_fork();
     if (pid == 0) {
-        // Child
+        // Child: reset SIGINT so Ctrl+C can interrupt us
+        signal_default(SIGINT);
         char *argv_sh[4];
         argv_sh[0] = "/bin/sh";
         argv_sh[1] = "-c";
@@ -3547,6 +3576,7 @@ static void shell_loop(void) {
     printn("");
 
     while (1) {
+        interrupted = 0;
         jobs_reap();
         reap_stray_children();
 
@@ -3740,6 +3770,8 @@ static void shell_loop(void) {
                     }
                     continue;
                 }
+                // Child: reset SIGINT so Ctrl+C can interrupt us
+                signal_default(SIGINT);
                 if (saved_stdout >= 0) {
                     sys_close(saved_stdout);
                     saved_stdout = -1;
@@ -3831,9 +3863,9 @@ void _start(void) {
         }
     }
 
-    // Ignore SIGINT and SIGTERM so we don't die when user presses Ctrl+C
-    // (the child process receives the signal and terminates instead)
-    signal_ignore(SIGINT);
+    // Catch SIGINT so we can interrupt long-running commands in PID 1.
+    // Ignore SIGTERM — we handle shutdown via explicit commands.
+    signal_catch(SIGINT);
     signal_ignore(SIGTERM);
 
     printn("[Nymoris] init started");

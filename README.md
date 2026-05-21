@@ -32,6 +32,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
+- [x] Ctrl+C interrupts long-running commands (sleep, agent, background jobs)
 - [x] Environment variables, aliases, command history, job control
 - [x] Semicolon command separators (`cmd1; cmd2; cmd3`)
 - [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
@@ -422,6 +423,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Startup scripts (`/data/nymoris.rc`)
 - [x] Hexdump command
 - [x] Base64 encode/decode
+- [x] Ctrl+C interrupts long-running commands
 - [ ] ELF Loader
 
 ### Phase 3: Production
