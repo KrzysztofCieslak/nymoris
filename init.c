@@ -34,6 +34,12 @@
 #define SYS_syslog   103
 #define SYS_setsockopt 54
 #define SYS_unshare  272
+#define SYS_rt_sigaction 13
+
+#define SIGINT  2
+#define SIGTERM 15
+#define SIGCHLD 17
+#define SIG_IGN 1
 
 #define SOL_SOCKET 1
 #define SO_RCVTIMEO 20
@@ -310,6 +316,28 @@ static int sys_unshare(int flags) {
         : "rcx", "r11", "memory"
     );
     return ret;
+}
+
+static int sys_rt_sigaction(int sig, const void *act, void *oldact, int sigsetsize) {
+    int ret;
+    register void *r10_ asm("r10") = (void *)(long)sigsetsize;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_rt_sigaction), "D"(sig), "S"(act), "d"(oldact), "r"(r10_)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static void signal_ignore(int sig) {
+    struct {
+        void *handler;
+        unsigned long flags;
+        void *restorer;
+        unsigned long mask;
+    } sa = { (void *)SIG_IGN, 0, NULL, 0 };
+    sys_rt_sigaction(sig, &sa, NULL, 8);
 }
 
 static int sys_uname(void *buf) {
@@ -3401,6 +3429,11 @@ void _start(void) {
             sys_close(fd);
         }
     }
+
+    // Ignore SIGINT and SIGTERM so we don't die when user presses Ctrl+C
+    // (the child process receives the signal and terminates instead)
+    signal_ignore(SIGINT);
+    signal_ignore(SIGTERM);
 
     printn("[Nymoris] init started");
 
