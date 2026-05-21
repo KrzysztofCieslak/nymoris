@@ -36,6 +36,9 @@
 #define SYS_unshare  272
 #define SYS_rt_sigaction 13
 #define SYS_umount2  166
+#define SYS_stat     4
+#define SYS_link     86
+#define SYS_symlink  88
 
 #define SIGINT  2
 #define SIGTERM 15
@@ -150,6 +153,17 @@ static int sys_umount2(const char *target, int flags) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_umount2), "D"(target), "S"(flags)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_stat(const char *path, void *buf) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_stat), "D"(path), "S"(buf)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -1472,6 +1486,40 @@ static void do_base64_dec(const char *path) {
         inpos -= outpos;
     }
     sys_close(fd);
+}
+
+static void do_stat(const char *path) {
+    struct {
+        unsigned long st_dev;
+        unsigned long st_ino;
+        unsigned long st_nlink;
+        unsigned int st_mode;
+        unsigned int st_uid;
+        unsigned int st_gid;
+        unsigned int __pad0;
+        unsigned long st_rdev;
+        long st_size;
+        long st_blksize;
+        long st_blocks;
+        unsigned long st_atime;
+        unsigned long st_atime_nsec;
+        unsigned long st_mtime;
+        unsigned long st_mtime_nsec;
+        unsigned long st_ctime;
+        unsigned long st_ctime_nsec;
+        long __unused[3];
+    } st;
+    if (sys_stat(path, &st) < 0) {
+        printn("stat: cannot stat file");
+        return;
+    }
+    print("File: "); printn(path);
+    print("Size: "); print_int((int)st.st_size); printn(" bytes");
+    print("Mode: 0"); print_int((int)(st.st_mode & 0777)); printn("");
+    print("Uid: "); print_int((int)st.st_uid); print("  Gid: "); print_int((int)st.st_gid); printn("");
+    print("Links: "); print_int((int)st.st_nlink); printn("");
+    print("Blocks: "); print_int((int)st.st_blocks); printn("");
+    print("Inode: "); print_int((int)st.st_ino); printn("");
 }
 
 static void do_chmod(const char *path, int mode) {
@@ -3018,6 +3066,7 @@ static void dispatch_command(void) {
         printn("  whoami            Show current user");
         printn("  id                Show user/group IDs");
         printn("  chmod <m> <f>    Change file permissions");
+        printn("  stat <file>       Show file metadata");
         printn("  find <d> <n>     Find file by name");
         printn("  source <file>     Execute commands from file");
         printn("  agent             Start AI agent loop");
@@ -3241,6 +3290,10 @@ static void dispatch_command(void) {
         } else {
             printn("Usage: chmod <mode> <file>");
         }
+    } else if (starts_with(linebuf, "stat ")) {
+        char *path = linebuf + 5;
+        while (*path == ' ') path++;
+        do_stat(path);
     } else if (starts_with(linebuf, "find ")) {
         char *rest = linebuf + 5;
         while (*rest == ' ') rest++;
