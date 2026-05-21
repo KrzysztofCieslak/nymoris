@@ -298,6 +298,7 @@ Inside the `agent` loop:
 | `chmod <mode> <file>` | Change permissions |
 | `head <file> [n]` | Show first n lines |
 | `tail <file> [n]` | Show last n lines |
+| `chain <cmd1>; <cmd2>` | Execute multiple commands in sequence |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |

@@ -2633,7 +2633,7 @@ static char *extract_tool_call(char *text) {
         }
     }
 
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", NULL};
     char *best = NULL;
     int best_pos = 4096;
 
@@ -2655,7 +2655,7 @@ static char *extract_tool_call(char *text) {
 }
 
 static int is_tool_call(const char *text) {
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", NULL};
     for (int t = 0; tools[t]; t++) {
         if (starts_with(text, tools[t])) return 1;
     }
@@ -2689,7 +2689,7 @@ static void ask_ai(const char *prompt) {
         }
         dynamic_prompt[dp++] = '.';
         dynamic_prompt[dp++] = ' ';
-        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep. ";
+        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep, chain. Use 'chain cmd1; cmd2' to run multiple commands. ";
         while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
         s = "Use 'exec' for built-in shell commands. Respond with the tool call only, no explanation.";
         while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
@@ -3189,6 +3189,78 @@ static void ask_ai(const char *prompt) {
             } else {
                 tail_file(tpath, nlines);
             }
+        } else if (starts_with(tc, "chain ")) {
+            printn("[AGENT] Executing: chain");
+            agent_tool_executed = 1;
+            char *chain_cmds = tc + 6;
+            char saved[1024];
+            int si = 0;
+            while (linebuf[si] && si < sizeof(saved) - 1) {
+                saved[si] = linebuf[si];
+                si++;
+            }
+            saved[si] = '\0';
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                char *cmd = chain_cmds;
+                while (*cmd) {
+                    while (*cmd == ' ' || *cmd == '\t') cmd++;
+                    if (!*cmd) break;
+                    char *end = cmd;
+                    while (*end && *end != ';') end++;
+                    char sep = *end;
+                    *end = '\0';
+                    int ci = 0;
+                    while (cmd[ci] && ci < sizeof(linebuf) - 1) {
+                        linebuf[ci] = cmd[ci];
+                        ci++;
+                    }
+                    linebuf[ci] = '\0';
+                    linepos = ci;
+                    if (linepos > 0) {
+                        dispatch_command();
+                    }
+                    *end = sep;
+                    if (sep == ';') end++;
+                    cmd = end;
+                }
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                char *cmd = chain_cmds;
+                while (*cmd) {
+                    while (*cmd == ' ' || *cmd == '\t') cmd++;
+                    if (!*cmd) break;
+                    char *end = cmd;
+                    while (*end && *end != ';') end++;
+                    char sep = *end;
+                    *end = '\0';
+                    int ci = 0;
+                    while (cmd[ci] && ci < sizeof(linebuf) - 1) {
+                        linebuf[ci] = cmd[ci];
+                        ci++;
+                    }
+                    linebuf[ci] = '\0';
+                    linepos = ci;
+                    if (linepos > 0) {
+                        dispatch_command();
+                    }
+                    *end = sep;
+                    if (sep == ';') end++;
+                    cmd = end;
+                }
+            }
+            si = 0;
+            while (saved[si]) {
+                linebuf[si] = saved[si];
+                si++;
+            }
+            linebuf[si] = '\0';
+            linepos = si;
         }
     } else {
         printn("[AGENT] Could not parse AI response");
@@ -3684,7 +3756,7 @@ static void agent_loop(void) {
     agent_load_history("/data/agent.history");
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");
