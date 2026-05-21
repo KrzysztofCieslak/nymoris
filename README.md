@@ -219,6 +219,31 @@ Inside the `agent` loop:
 | `config` | Show API configuration |
 | `done` / `quit` | Exit agent loop |
 
+## Local LLM Inference
+
+Run models entirely offline with the built-in inference engine:
+
+```bash
+llm model.nymollm "What is the capital of France?"
+```
+
+### Converting Models
+
+Use `convert.py` to convert HuggingFace models to the NYMOLLM format:
+
+```bash
+# Full precision (default)
+python convert.py --model gpt2 --output model.nymollm
+
+# Half precision — 2x smaller
+python convert.py --model gpt2 --output model.nymollm --dtype f16
+
+# 4-bit quantization — 8x smaller
+python convert.py --model gpt2 --output model.nymollm --dtype q4_0
+```
+
+Supported dtypes: `f32`, `f16`, `q4_0`. The inference engine dequantizes to f32 on load.
+
 ## Configuring the AI API
 
 Set environment variables before entering the agent loop:
@@ -310,6 +335,18 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 - [x] Agent runs in forked child (crash isolation)
 - [x] Container-style isolation (mount + PID namespaces)
 - [x] Install command + `/data/bin` executable path
+- [ ] File system persistence (ext4/FAT driver)
+- [ ] ELF Loader
+
+### Phase 2: Advanced Agent
+- [x] HTTPS proxy for AI APIs (`scripts/https_proxy.py`)
+- [x] Better HTTP client (redirects, chunked encoding, timeouts)
+- [x] Writable `/data` tmpfs mount
+- [x] Agent `post` tool for HTTP POST
+- [x] Agent runs in forked child (crash isolation)
+- [x] Container-style isolation (mount + PID namespaces)
+- [x] Install command + `/data/bin` executable path
+- [x] Better local LLM (f16, Q4_0 quantization)
 - [ ] File system persistence (ext4/FAT driver)
 - [ ] ELF Loader
 

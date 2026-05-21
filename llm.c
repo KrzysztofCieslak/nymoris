@@ -104,7 +104,7 @@ static void matmul_add_bias(float *out, const float *x, const float *w, const fl
 // Arena allocator
 // ============================================================================
 
-static char llm_arena[200 * 1024 * 1024]; // 200MB
+static char llm_arena[400 * 1024 * 1024]; // 400MB
 static int llm_arena_pos = 0;
 
 static void* llm_alloc(int size) {
@@ -136,7 +136,7 @@ static void llm_reset() {
 // uint32: n_head
 // uint32: n_layer
 // uint32: n_ff
-// uint32: weight_dtype (0=f32, 1=f16)
+// uint32: weight_dtype (0=f32, 1=f16, 2=q4_0)
 // Then tensors in order:
 //   tok_emb [n_vocab, n_embd]
 //   pos_emb [n_ctx, n_embd] (optional, may be zeros if RoPE)
@@ -154,6 +154,36 @@ static void llm_reset() {
 //   final_norm_w [n_embd]
 //   final_norm_b [n_embd]
 //   lm_head_w [n_embd, n_vocab] (often shared with tok_emb)
+
+static float f16_to_f32(unsigned short h) {
+    unsigned int s = (h >> 15) & 0x1;
+    unsigned int e = (h >> 10) & 0x1F;
+    unsigned int m = h & 0x3FF;
+    if (e == 0) {
+        if (m == 0) return s ? -0.0f : 0.0f;
+        while ((m & 0x400) == 0) { m <<= 1; e--; }
+        e++; m &= 0x3FF;
+    } else if (e == 31) {
+        if (m == 0) return s ? -1e38f : 1e38f;
+        return 0.0f;
+    }
+    unsigned int f = (s << 31) | ((e + 112) << 23) | (m << 13);
+    return *(float*)&f;
+}
+
+static void dequantize_q4_0(float *out, const char *src, int n) {
+    int nb = n / 32;
+    for (int b = 0; b < nb; b++) {
+        float scale = f16_to_f32(*(unsigned short*)src);
+        src += 2;
+        for (int i = 0; i < 16; i++) {
+            unsigned char q = src[i];
+            out[b * 32 + i * 2 + 0] = scale * (float)((q & 0x0F) - 8);
+            out[b * 32 + i * 2 + 1] = scale * (float)((q >> 4) - 8);
+        }
+        src += 16;
+    }
+}
 
 static int read_file(const char *path, char *buf, int max) {
     int fd = sys_open(path, 0, 0);
@@ -212,7 +242,7 @@ static int load_model(const char *path, Model *m) {
     m->n_ff    = h[6];
     m->dtype   = h[7];
 
-    if (m->dtype != 0) { sys_close(fd); return -1; } // Only f32 for now
+    if (m->dtype != 0 && m->dtype != 1 && m->dtype != 2) { sys_close(fd); return -1; }
 
     int nv = m->n_vocab;
     int nc = m->n_ctx;
@@ -222,7 +252,7 @@ static int load_model(const char *path, Model *m) {
     int nf = m->n_ff;
     int hs = ne / nh; // head size
 
-    // Allocate tensors
+    // Allocate tensors (always f32 in memory)
     m->tok_emb = llm_alloc(nv * ne * sizeof(float));
     m->pos_emb = llm_alloc(nc * ne * sizeof(float));
 
@@ -279,43 +309,75 @@ static int load_model(const char *path, Model *m) {
     char skip[64];
     sys_read(fd, skip, 64);
 
-    // Helper to read a float tensor
-    #define READ_TENSOR(ptr, count) do { \
-        int total = 0; \
-        int need = (count) * sizeof(float); \
-        char *dst = (char*)(ptr); \
-        while (total < need) { \
-            int r = sys_read(fd, dst + total, need - total); \
-            if (r <= 0) break; \
-            total += r; \
-        } \
-    } while(0)
+    // Helper: read raw bytes from file
+    static char read_buf[16 * 1024 * 1024]; // 16MB read buffer
+    int read_buf_pos = 0;
+    int read_buf_len = 0;
 
-    READ_TENSOR(m->tok_emb, nv * ne);
-    READ_TENSOR(m->pos_emb, nc * ne);
-
-    for (int l = 0; l < nl; l++) {
-        READ_TENSOR(m->attn_norm_w[l], ne);
-        READ_TENSOR(m->attn_norm_b[l], ne);
-        READ_TENSOR(m->q_w[l], ne * ne);
-        READ_TENSOR(m->q_b[l], ne);
-        READ_TENSOR(m->k_w[l], ne * ne);
-        READ_TENSOR(m->k_b[l], ne);
-        READ_TENSOR(m->v_w[l], ne * ne);
-        READ_TENSOR(m->v_b[l], ne);
-        READ_TENSOR(m->o_w[l], ne * ne);
-        READ_TENSOR(m->o_b[l], ne);
-        READ_TENSOR(m->ffn_norm_w[l], ne);
-        READ_TENSOR(m->ffn_norm_b[l], ne);
-        READ_TENSOR(m->ffn_up_w[l], ne * nf);
-        READ_TENSOR(m->ffn_up_b[l], nf);
-        READ_TENSOR(m->ffn_down_w[l], nf * ne);
-        READ_TENSOR(m->ffn_down_b[l], ne);
+    char read_byte(int fd_) {
+        if (read_buf_pos >= read_buf_len) {
+            read_buf_len = sys_read(fd_, read_buf, sizeof(read_buf));
+            read_buf_pos = 0;
+            if (read_buf_len <= 0) return 0;
+        }
+        return read_buf[read_buf_pos++];
     }
 
-    READ_TENSOR(m->final_norm_w, ne);
-    READ_TENSOR(m->final_norm_b, ne);
-    READ_TENSOR(m->lm_head_w, ne * nv);
+    // Helper to read a tensor based on dtype
+    void read_tensor(int fd_, float *dst, int count) {
+        if (m->dtype == 0) {
+            // f32: read directly
+            int total = 0;
+            int need = count * sizeof(float);
+            char *d = (char*)dst;
+            while (total < need) {
+                int r = sys_read(fd_, d + total, need - total);
+                if (r <= 0) break;
+                total += r;
+            }
+        } else if (m->dtype == 1) {
+            // f16: read and convert
+            for (int i = 0; i < count; i++) {
+                unsigned char b0 = read_byte(fd_);
+                unsigned char b1 = read_byte(fd_);
+                dst[i] = f16_to_f32(b0 | (b1 << 8));
+            }
+        } else if (m->dtype == 2) {
+            // q4_0: read blocks and dequantize
+            int nb = count / 32;
+            for (int b = 0; b < nb; b++) {
+                unsigned char block[18];
+                for (int j = 0; j < 18; j++) block[j] = read_byte(fd_);
+                dequantize_q4_0(dst + b * 32, (char*)block, 32);
+            }
+        }
+    }
+
+    read_tensor(fd, m->tok_emb, nv * ne);
+    read_tensor(fd, m->pos_emb, nc * ne);
+
+    for (int l = 0; l < nl; l++) {
+        read_tensor(fd, m->attn_norm_w[l], ne);
+        read_tensor(fd, m->attn_norm_b[l], ne);
+        read_tensor(fd, m->q_w[l], ne * ne);
+        read_tensor(fd, m->q_b[l], ne);
+        read_tensor(fd, m->k_w[l], ne * ne);
+        read_tensor(fd, m->k_b[l], ne);
+        read_tensor(fd, m->v_w[l], ne * ne);
+        read_tensor(fd, m->v_b[l], ne);
+        read_tensor(fd, m->o_w[l], ne * ne);
+        read_tensor(fd, m->o_b[l], ne);
+        read_tensor(fd, m->ffn_norm_w[l], ne);
+        read_tensor(fd, m->ffn_norm_b[l], ne);
+        read_tensor(fd, m->ffn_up_w[l], ne * nf);
+        read_tensor(fd, m->ffn_up_b[l], nf);
+        read_tensor(fd, m->ffn_down_w[l], nf * ne);
+        read_tensor(fd, m->ffn_down_b[l], ne);
+    }
+
+    read_tensor(fd, m->final_norm_w, ne);
+    read_tensor(fd, m->final_norm_b, ne);
+    read_tensor(fd, m->lm_head_w, ne * nv);
 
     sys_close(fd);
 

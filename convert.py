@@ -14,6 +14,8 @@ import struct
 import sys
 import os
 
+DTYPE_MAP = {"f32": 0, "f16": 1, "q4_0": 2}
+
 def write_header(f, config):
     """Write NYMOLLM binary header."""
     f.write(b"NYMOLLM\x00")  # Magic (8 bytes)
@@ -24,13 +26,39 @@ def write_header(f, config):
     f.write(struct.pack("<I", config["n_head"]))
     f.write(struct.pack("<I", config["n_layer"]))
     f.write(struct.pack("<I", config["n_ff"]))
-    f.write(struct.pack("<I", 0))           # dtype: 0 = f32
+    f.write(struct.pack("<I", DTYPE_MAP.get(config.get("dtype", "f32"), 0)))
 
 
-def write_tensor(f, tensor):
-    """Write a tensor as float32."""
+def write_tensor(f, tensor, dtype="f32"):
+    """Write a tensor in the specified dtype."""
     data = tensor.detach().cpu().float().numpy().flatten()
-    f.write(data.astype("float32").tobytes())
+    if dtype == "f16":
+        f.write(data.astype("float16").tobytes())
+    elif dtype == "q4_0":
+        # Quantize to Q4_0: blocks of 32 weights
+        n = len(data)
+        pad = (32 - n % 32) % 32
+        if pad:
+            data = np.concatenate([data, np.zeros(pad, dtype=np.float32)])
+        nblocks = len(data) // 32
+        for b in range(nblocks):
+            block = data[b * 32 : (b + 1) * 32]
+            amax = np.max(np.abs(block))
+            if amax == 0:
+                scale = 0.0
+            else:
+                scale = amax / 8.0
+            # Write scale as float16
+            f.write(np.float16(scale).tobytes())
+            # Quantize and pack
+            q = np.round(block / scale).astype(np.int8) + 8
+            q = np.clip(q, 0, 15)
+            packed = np.zeros(16, dtype=np.uint8)
+            for i in range(16):
+                packed[i] = (q[i * 2 + 1] << 4) | q[i * 2]
+            f.write(packed.tobytes())
+    else:
+        f.write(data.astype("float32").tobytes())
 
 
 def estimate_n_ff(n_embd):
@@ -39,7 +67,7 @@ def estimate_n_ff(n_embd):
     return n_embd * 4
 
 
-def convert_model(model_name, output_path):
+def convert_model(model_name, output_path, dtype="f32"):
     try:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -70,6 +98,7 @@ def convert_model(model_name, output_path):
         "n_head": n_head,
         "n_layer": n_layer,
         "n_ff": n_ff,
+        "dtype": dtype,
     }
 
     print(f"Config: vocab={n_vocab}, ctx={n_ctx}, embd={n_embd}, "
@@ -85,13 +114,13 @@ def convert_model(model_name, output_path):
         # Token embeddings
         tok_emb_key = "transformer.wte.weight" if "transformer.wte.weight" in state else "model.embed_tokens.weight"
         print(f"Writing token embeddings from {tok_emb_key}")
-        write_tensor(f, state[tok_emb_key])
+        write_tensor(f, state[tok_emb_key], dtype=dtype)
 
         # Position embeddings (if present, else zeros)
         pos_emb_key = "transformer.wpe.weight" if "transformer.wpe.weight" in state else None
         if pos_emb_key and pos_emb_key in state:
             print(f"Writing position embeddings from {pos_emb_key}")
-            write_tensor(f, state[pos_emb_key])
+            write_tensor(f, state[pos_emb_key], dtype=dtype)
         else:
             print("No position embeddings found, writing zeros")
             f.write(b"\x00" * (n_ctx * n_embd * 4))
@@ -182,30 +211,30 @@ def convert_model(model_name, output_path):
                 sys.exit(1)
 
             # Write attention norm
-            write_tensor(f, ln1_w if ln1_w is not None else torch.zeros(n_embd))
-            write_tensor(f, ln1_b if ln1_b is not None else torch.zeros(n_embd))
+            write_tensor(f, ln1_w if ln1_w is not None else torch.zeros(n_embd, dtype=dtype))
+            write_tensor(f, ln1_b if ln1_b is not None else torch.zeros(n_embd, dtype=dtype))
 
             # Write Q, K, V weights and biases
-            write_tensor(f, q_w if q_w is not None else torch.zeros(n_embd, n_embd))
-            write_tensor(f, q_b if q_b is not None else torch.zeros(n_embd))
-            write_tensor(f, k_w if k_w is not None else torch.zeros(n_embd, n_embd))
-            write_tensor(f, k_b if k_b is not None else torch.zeros(n_embd))
-            write_tensor(f, v_w if v_w is not None else torch.zeros(n_embd, n_embd))
-            write_tensor(f, v_b if v_b is not None else torch.zeros(n_embd))
+            write_tensor(f, q_w if q_w is not None else torch.zeros(n_embd, n_embd, dtype=dtype))
+            write_tensor(f, q_b if q_b is not None else torch.zeros(n_embd, dtype=dtype))
+            write_tensor(f, k_w if k_w is not None else torch.zeros(n_embd, n_embd, dtype=dtype))
+            write_tensor(f, k_b if k_b is not None else torch.zeros(n_embd, dtype=dtype))
+            write_tensor(f, v_w if v_w is not None else torch.zeros(n_embd, n_embd, dtype=dtype))
+            write_tensor(f, v_b if v_b is not None else torch.zeros(n_embd, dtype=dtype))
 
             # Write output projection
-            write_tensor(f, attn_o_w if attn_o_w is not None else torch.zeros(n_embd, n_embd))
-            write_tensor(f, attn_o_b if attn_o_b is not None else torch.zeros(n_embd))
+            write_tensor(f, attn_o_w if attn_o_w is not None else torch.zeros(n_embd, n_embd, dtype=dtype))
+            write_tensor(f, attn_o_b if attn_o_b is not None else torch.zeros(n_embd, dtype=dtype))
 
             # Write FFN norm
-            write_tensor(f, ln2_w if ln2_w is not None else torch.zeros(n_embd))
-            write_tensor(f, ln2_b if ln2_b is not None else torch.zeros(n_embd))
+            write_tensor(f, ln2_w if ln2_w is not None else torch.zeros(n_embd, dtype=dtype))
+            write_tensor(f, ln2_b if ln2_b is not None else torch.zeros(n_embd, dtype=dtype))
 
             # Write FFN up and down
-            write_tensor(f, mlp_up_w if mlp_up_w is not None else torch.zeros(n_embd, n_ff))
-            write_tensor(f, mlp_up_b if mlp_up_b is not None else torch.zeros(n_ff))
-            write_tensor(f, mlp_down_w if mlp_down_w is not None else torch.zeros(n_ff, n_embd))
-            write_tensor(f, mlp_down_b if mlp_down_b is not None else torch.zeros(n_embd))
+            write_tensor(f, mlp_up_w if mlp_up_w is not None else torch.zeros(n_embd, n_ff, dtype=dtype))
+            write_tensor(f, mlp_up_b if mlp_up_b is not None else torch.zeros(n_ff, dtype=dtype))
+            write_tensor(f, mlp_down_w if mlp_down_w is not None else torch.zeros(n_ff, n_embd, dtype=dtype))
+            write_tensor(f, mlp_down_b if mlp_down_b is not None else torch.zeros(n_embd, dtype=dtype))
 
         # Final norm
         if model_type in ("gpt2", "gpt_neo", "gptj"):
@@ -215,8 +244,8 @@ def convert_model(model_name, output_path):
             final_ln_w = state.get("model.norm.weight")
             final_ln_b = None
 
-        write_tensor(f, final_ln_w if final_ln_w is not None else torch.zeros(n_embd))
-        write_tensor(f, final_ln_b if final_ln_b is not None else torch.zeros(n_embd))
+        write_tensor(f, final_ln_w if final_ln_w is not None else torch.zeros(n_embd, dtype=dtype))
+        write_tensor(f, final_ln_b if final_ln_b is not None else torch.zeros(n_embd, dtype=dtype))
 
         # LM head (often shared with tok_emb)
         if model_type in ("gpt2", "gpt_neo", "gptj"):
@@ -226,7 +255,7 @@ def convert_model(model_name, output_path):
 
         if lm_head is not None and lm_head.dim() == 2:
             lm_head = lm_head.t()
-        write_tensor(f, lm_head if lm_head is not None else torch.zeros(n_embd, n_vocab))
+        write_tensor(f, lm_head if lm_head is not None else torch.zeros(n_embd, n_vocab, dtype=dtype))
 
     print(f"Model written to: {output_path}")
 
@@ -278,9 +307,11 @@ def main():
     parser = argparse.ArgumentParser(description="Convert HF model to NYMOLLM format")
     parser.add_argument("--model", required=True, help="HuggingFace model name or path")
     parser.add_argument("--output", required=True, help="Output file path")
+    parser.add_argument("--dtype", choices=["f32", "f16", "q4_0"], default="f32",
+                        help="Weight dtype (default: f32)")
     args = parser.parse_args()
 
-    convert_model(args.model, args.output)
+    convert_model(args.model, args.output, dtype=args.dtype)
 
 
 if __name__ == "__main__":
