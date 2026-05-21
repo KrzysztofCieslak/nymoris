@@ -1278,6 +1278,61 @@ static void print_hostname(void) {
     }
 }
 
+static void print_hex_byte(unsigned char b) {
+    const char *hex = "0123456789abcdef";
+    char buf[2];
+    buf[0] = hex[b >> 4];
+    buf[1] = hex[b & 0x0f];
+    sys_write(1, buf, 2);
+}
+
+static void do_hexdump(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("hexdump: cannot open file");
+        return;
+    }
+    unsigned char buf[16];
+    long offset = 0;
+    int n;
+    while ((n = sys_read(fd, (char*)buf, 16)) > 0) {
+        // Print offset in hex
+        char offbuf[9];
+        long tmp = offset;
+        for (int i = 7; i >= 0; i--) {
+            offbuf[i] = "0123456789abcdef"[tmp & 0x0f];
+            tmp >>= 4;
+        }
+        offbuf[8] = '\0';
+        print(offbuf);
+        print("  ");
+
+        // Print hex bytes
+        for (int i = 0; i < 16; i++) {
+            if (i < n) {
+                print_hex_byte(buf[i]);
+            } else {
+                print("  ");
+            }
+            if (i == 7) print(" ");
+            else print(" ");
+        }
+        print(" |");
+        // Print ASCII
+        for (int i = 0; i < n; i++) {
+            if (buf[i] >= 32 && buf[i] < 127) {
+                char c = (char)buf[i];
+                sys_write(1, &c, 1);
+            } else {
+                print(".");
+            }
+        }
+        printn("|");
+        offset += n;
+    }
+    sys_close(fd);
+}
+
 static void source_file(const char *path) {
     int fd = sys_open(path, 0, 0);
     if (fd < 0) {
@@ -2789,6 +2844,7 @@ static void dispatch_command(void) {
         printn("  cat <file>        Show file contents");
         printn("  head <file> [n]   Show first n lines");
         printn("  tail <file> [n]   Show last n lines");
+        printn("  hexdump <file>    Hex dump file");
         printn("  grep <p> <file>   Search for pattern");
         printn("  wc <file>         Count lines/words/bytes");
         printn("  mkdir <dir>       Create directory");
@@ -3020,6 +3076,10 @@ static void dispatch_command(void) {
             print_int(ret);
             printn("");
         }
+    } else if (starts_with(linebuf, "hexdump ")) {
+        char *path = linebuf + 8;
+        while (*path == ' ') path++;
+        do_hexdump(path);
     } else if (strcmp_(linebuf, "netstat") == 0) {
         cat_file("/proc/net/tcp");
     } else if (strcmp_(linebuf, "hostname") == 0) {

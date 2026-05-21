@@ -28,7 +28,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
 - [x] Interactive agent shell with 40+ built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch)
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
@@ -180,6 +180,7 @@ Lines starting with `#` are comments and ignored.
 | `cat <file>` | Display file contents |
 | `head <file> [n]` | Show first n lines |
 | `tail <file> [n]` | Show last n lines |
+| `hexdump <file>` | Hex dump file contents |
 | `grep <pattern> <file>` | Search for pattern |
 | `wc <file>` | Count lines/words/bytes |
 | `mkdir <dir>` | Create directory |
@@ -417,6 +418,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Semicolon command separators (`cmd1; cmd2`)
 - [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
 - [x] Startup scripts (`/data/nymoris.rc`)
+- [x] Hexdump command
 - [ ] ELF Loader
 
 ### Phase 3: Production
