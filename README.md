@@ -316,6 +316,28 @@ Nymoris was previously built as a custom kernel from scratch. While educational,
 
 The custom initramfs approach keeps the system minimal and purpose-built while leveraging Linux's robust foundation.
 
+## Real Hardware Deployment
+
+Nymoris can be deployed to physical x86_64 hardware via bootable ISO, USB, or PXE.
+
+### Bootable ISO
+
+On a Linux machine (or Docker container):
+
+```bash
+make build
+bash scripts/deploy/mkiso.sh
+# Creates nymoris.iso
+qemu-system-x86_64 -cdrom nymoris.iso -m 512M
+```
+
+Write to USB:
+```bash
+sudo dd if=nymoris.iso of=/dev/sdX bs=4M status=progress
+```
+
+See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
+
 ## Roadmap
 
 ### Phase 1: Agent MVP (Done)
@@ -337,25 +359,16 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 - [x] Agent runs in forked child (crash isolation)
 - [x] Container-style isolation (mount + PID namespaces)
 - [x] Install command + `/data/bin` executable path
-- [ ] File system persistence (ext4/FAT driver)
-- [ ] ELF Loader
-
-### Phase 2: Advanced Agent
-- [x] HTTPS proxy for AI APIs (`scripts/https_proxy.py`)
-- [x] Better HTTP client (redirects, chunked encoding, timeouts)
-- [x] Writable `/data` tmpfs mount
-- [x] Agent `post` tool for HTTP POST
-- [x] Agent runs in forked child (crash isolation)
-- [x] Container-style isolation (mount + PID namespaces)
-- [x] Install command + `/data/bin` executable path
 - [x] Better local LLM (f16, Q4_0 quantization)
+- [x] Tar archive extractor
+- [x] Netstat command
 - [ ] File system persistence (ext4/FAT driver)
 - [ ] ELF Loader
 
 ### Phase 3: Production
 - [ ] Full agent framework support
 - [x] Package manager precursor (`install`, `tar x`)
-- [ ] Real hardware deployment
+- [x] Real hardware deployment scripts (ISO, GRUB, PXE)
 - [ ] Distributed agent clusters
 
 ## Security
