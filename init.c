@@ -3756,7 +3756,7 @@ static void agent_loop(void) {
     agent_load_history("/data/agent.history");
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");
@@ -3841,6 +3841,18 @@ static void agent_loop(void) {
                 printn("default");
             }
             printn("[AGENT] Set via env: NYMORIS_API_KEY, NYMORIS_API_HOST, NYMORIS_API_MODEL, NYMORIS_API_PATH, NYMORIS_SYSTEM_PROMPT, NYMORIS_API_TEMPERATURE, NYMORIS_API_MAX_TOKENS, NYMORIS_AUTO_MAX_ITER, NYMORIS_AUTO_INTERVAL");
+        } else if (strcmp_(action, "model") == 0) {
+            if (arg) {
+                int i = 0;
+                while (arg[i] && i < sizeof(api_model) - 1) {
+                    api_model[i] = arg[i];
+                    i++;
+                }
+                api_model[i] = '\0';
+                print("[AGENT] Model set to: "); printn(api_model);
+            } else {
+                print("[AGENT] Current model: "); printn(api_model);
+            }
         } else if (strcmp_(action, "run") == 0) {
             if (arg) {
                 run_command(arg);

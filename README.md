@@ -307,6 +307,7 @@ Inside the `agent` loop:
 | `save [path]` | Save conversation history |
 | `load [path]` | Load conversation history |
 | `config` | Show API configuration |
+| `model [name]` | Show or set AI model |
 | `done` / `quit` | Exit agent loop |
 
 ## Local LLM Inference
