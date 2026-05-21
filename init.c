@@ -32,6 +32,11 @@
 #define SYS_chdir    80
 #define SYS_rmdir    84
 #define SYS_syslog   103
+#define SYS_setsockopt 54
+
+#define SOL_SOCKET 1
+#define SO_RCVTIMEO 20
+#define SO_SNDTIMEO 21
 
 typedef unsigned long size_t;
 typedef long ssize_t;
@@ -262,6 +267,20 @@ static int sys_kill(int pid, int sig) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_kill), "D"(pid), "S"(sig)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_setsockopt(int fd, int level, int optname, const void *optval, int optlen) {
+    int ret;
+    register int r10_ asm("r10") = optname;
+    register const void *r8_ asm("r8") = optval;
+    register int r9_ asm("r9") = optlen;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_setsockopt), "D"(fd), "S"(level), "d"(optname), "r"(r10_), "r"(r8_), "r"(r9_)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -1524,131 +1543,363 @@ static uint32_t dns_resolve(const char *host) {
     return 0;
 }
 
-static void do_http_get(const char *host, const char *path) {
-    uint32_t ip = dns_resolve(host);
-    if (ip == 0) {
-        printn("http: cannot resolve host (DNS not implemented, use IP)");
-        return;
-    }
-
-    int fd = sys_socket(2, 1, 0); // AF_INET, SOCK_STREAM, 0
-    if (fd < 0) {
-        printn("http: socket failed");
-        return;
-    }
-
-    struct {
-        uint16_t family;
-        uint16_t port;
-        uint32_t addr;
-        char pad[8];
-    } sa = {2, 0x5000, ip, {0}}; // port 80
-
-    if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
-        printn("http: connect failed");
-        sys_close(fd);
-        return;
-    }
-
-    char req[512];
-    int len = 0;
-    const char *p = "GET ";
-    while (*p) req[len++] = *p++;
-    p = path;
-    while (*p) req[len++] = *p++;
-    p = " HTTP/1.1\r\nHost: ";
-    while (*p) req[len++] = *p++;
-    p = host;
-    while (*p) req[len++] = *p++;
-    p = "\r\nConnection: close\r\n\r\n";
-    while (*p) req[len++] = *p++;
-
-    sys_write(fd, req, len);
-
-    char buf[256];
-    int n;
-    while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
-        sys_write(1, buf, n);
-    }
-    sys_close(fd);
+static void http_set_timeout(int fd, int secs) {
+    struct { uint64_t sec; uint64_t usec; } tv = { secs, 0 };
+    sys_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    sys_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 }
 
-static void do_wget(const char *host, const char *path, const char *outfile) {
-    uint32_t ip = dns_resolve(host);
-    if (ip == 0) {
-        printn("wget: cannot resolve host");
-        return;
+// Parse a hex string, returns value and advances pointer.
+static int parse_hex(const char *s, const char **end) {
+    int val = 0;
+    while (*s) {
+        char c = *s;
+        int digit = -1;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'a' && c <= 'f') digit = 10 + (c - 'a');
+        else if (c >= 'A' && c <= 'F') digit = 10 + (c - 'A');
+        else break;
+        val = val * 16 + digit;
+        s++;
     }
+    if (end) *end = s;
+    return val;
+}
 
-    int fd = sys_socket(2, 1, 0); // AF_INET, SOCK_STREAM, 0
-    if (fd < 0) {
-        printn("wget: socket failed");
-        return;
-    }
+// Reads HTTP response from fd, extracts body into `out`.
+// Returns body length, sets *status to HTTP status code.
+// If redirect is non-NULL and redirect_max > 0, copies Location header into redirect on 3xx.
+// Handles Content-Length and chunked transfer encoding.
+static int http_parse_response(int fd, char *out, int out_max, int *status, char *redirect, int redirect_max) {
+    char hdr[2048];
+    int hdr_len = 0;
+    int found_end = 0;
 
-    struct {
-        uint16_t family;
-        uint16_t port;
-        uint32_t addr;
-        char pad[8];
-    } sa = {2, 0x5000, ip, {0}}; // port 80
-
-    if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
-        printn("wget: connect failed");
-        sys_close(fd);
-        return;
-    }
-
-    char req[512];
-    int len = 0;
-    const char *p = "GET ";
-    while (*p) req[len++] = *p++;
-    p = path;
-    while (*p) req[len++] = *p++;
-    p = " HTTP/1.1\r\nHost: ";
-    while (*p) req[len++] = *p++;
-    p = host;
-    while (*p) req[len++] = *p++;
-    p = "\r\nConnection: close\r\n\r\n";
-    while (*p) req[len++] = *p++;
-
-    sys_write(fd, req, len);
-
-    // Read full response into a buffer
-    char resp_buf[8192];
-    int total = 0;
-    char buf[256];
-    int n;
-    while ((n = sys_read(fd, buf, sizeof(buf))) > 0 && total + n < sizeof(resp_buf) - 1) {
-        for (int i = 0; i < n; i++) resp_buf[total++] = buf[i];
-    }
-    resp_buf[total] = '\0';
-    sys_close(fd);
-
-    // Find body after \r\n\r\n
-    int body_start = -1;
-    for (int i = 0; i < total - 3; i++) {
-        if (resp_buf[i] == '\r' && resp_buf[i+1] == '\n' && resp_buf[i+2] == '\r' && resp_buf[i+3] == '\n') {
-            body_start = i + 4;
+    // Read headers byte by byte until \r\n\r\n
+    while (hdr_len < sizeof(hdr) - 1) {
+        char c;
+        int n = sys_read(fd, &c, 1);
+        if (n <= 0) break;
+        hdr[hdr_len++] = c;
+        if (hdr_len >= 4 && hdr[hdr_len-4] == '\r' && hdr[hdr_len-3] == '\n' &&
+            hdr[hdr_len-2] == '\r' && hdr[hdr_len-1] == '\n') {
+            found_end = 1;
             break;
         }
     }
-    if (body_start < 0) {
-        printn("wget: no body in response");
-        return;
+    hdr[hdr_len] = '\0';
+    if (!found_end) return -1;
+
+    // Parse status code
+    *status = 0;
+    const char *p = hdr;
+    while (*p && *p != ' ') p++; // skip "HTTP/1.x"
+    if (*p == ' ') {
+        p++;
+        while (*p >= '0' && *p <= '9') {
+            *status = *status * 10 + (*p - '0');
+            p++;
+        }
     }
 
-    int outfd = sys_open(outfile, 0x241, 0644);
-    if (outfd < 0) {
-        printn("wget: cannot create output file");
+    // Look for Content-Length and Transfer-Encoding
+    int content_len = -1;
+    int is_chunked = 0;
+
+    const char *line = hdr;
+    while (*line) {
+        // Find end of line
+        const char *eol = line;
+        while (*eol && !(*eol == '\r' && *(eol+1) == '\n')) eol++;
+        if (!*eol) break;
+
+        if (starts_with(line, "Content-Length: ") || starts_with(line, "content-length: ")) {
+            content_len = 0;
+            const char *v = line + 16;
+            while (*v >= '0' && *v <= '9') {
+                content_len = content_len * 10 + (*v - '0');
+                v++;
+            }
+        }
+        if (starts_with(line, "Transfer-Encoding: chunked") ||
+            starts_with(line, "transfer-encoding: chunked")) {
+            is_chunked = 1;
+        }
+        if (redirect && redirect_max > 0) {
+            if (starts_with(line, "Location: ") || starts_with(line, "location: ")) {
+                const char *v = line + 10;
+                int ri = 0;
+                while (*v && *v != '\r' && *v != '\n' && ri < redirect_max - 1) {
+                    redirect[ri++] = *v++;
+                }
+                redirect[ri] = '\0';
+            }
+        }
+
+        line = eol + 2;
+        if (*line == '\r' && *(line+1) == '\n') break; // end of headers
+    }
+
+    int out_pos = 0;
+
+    if (is_chunked) {
+        // Read chunk size line, then chunk data, repeat
+        while (out_pos < out_max - 1) {
+            char chunk_hdr[32];
+            int ch_len = 0;
+            // Read chunk size line
+            while (ch_len < sizeof(chunk_hdr) - 1) {
+                char c;
+                int n = sys_read(fd, &c, 1);
+                if (n <= 0) return -1;
+                chunk_hdr[ch_len++] = c;
+                if (ch_len >= 2 && chunk_hdr[ch_len-2] == '\r' && chunk_hdr[ch_len-1] == '\n')
+                    break;
+            }
+            chunk_hdr[ch_len] = '\0';
+            int chunk_size = parse_hex(chunk_hdr, NULL);
+            if (chunk_size == 0) {
+                // Read trailing \r\n
+                char c[2];
+                sys_read(fd, c, 2);
+                break;
+            }
+            // Read chunk data
+            int to_read = chunk_size;
+            if (out_pos + to_read > out_max - 1) to_read = out_max - 1 - out_pos;
+            while (to_read > 0) {
+                int n = sys_read(fd, out + out_pos, to_read);
+                if (n <= 0) return -1;
+                out_pos += n;
+                to_read -= n;
+            }
+            // Read trailing \r\n after chunk
+            char c[2];
+            sys_read(fd, c, 2);
+        }
+    } else if (content_len >= 0) {
+        int to_read = content_len;
+        if (to_read > out_max - 1) to_read = out_max - 1;
+        while (to_read > 0) {
+            int n = sys_read(fd, out + out_pos, to_read);
+            if (n <= 0) break;
+            out_pos += n;
+            to_read -= n;
+        }
+    } else {
+        // No content length, read until close
+        while (out_pos < out_max - 1) {
+            int n = sys_read(fd, out + out_pos, out_max - 1 - out_pos);
+            if (n <= 0) break;
+            out_pos += n;
+        }
+    }
+
+    out[out_pos] = '\0';
+    return out_pos;
+}
+
+static void do_http_get(const char *host, const char *path) {
+    char cur_host[64];
+    char cur_path[256];
+    int i = 0;
+    while (host[i] && i < sizeof(cur_host) - 1) { cur_host[i] = host[i]; i++; }
+    cur_host[i] = '\0';
+    i = 0;
+    while (path[i] && i < sizeof(cur_path) - 1) { cur_path[i] = path[i]; i++; }
+    cur_path[i] = '\0';
+
+    for (int redirect_count = 0; redirect_count < 5; redirect_count++) {
+        uint32_t ip = dns_resolve(cur_host);
+        if (ip == 0) {
+            printn("http: cannot resolve host");
+            return;
+        }
+
+        int fd = sys_socket(2, 1, 0);
+        if (fd < 0) {
+            printn("http: socket failed");
+            return;
+        }
+
+        struct {
+            uint16_t family;
+            uint16_t port;
+            uint32_t addr;
+            char pad[8];
+        } sa = {2, 0x5000, ip, {0}};
+
+        http_set_timeout(fd, 10);
+
+        if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
+            printn("http: connect failed");
+            sys_close(fd);
+            return;
+        }
+
+        char req[512];
+        int len = 0;
+        const char *p = "GET ";
+        while (*p) req[len++] = *p++;
+        p = cur_path;
+        while (*p) req[len++] = *p++;
+        p = " HTTP/1.1\r\nHost: ";
+        while (*p) req[len++] = *p++;
+        p = cur_host;
+        while (*p) req[len++] = *p++;
+        p = "\r\nConnection: close\r\n\r\n";
+        while (*p) req[len++] = *p++;
+
+        sys_write(fd, req, len);
+
+        char resp[4096];
+        int status;
+        char location[256];
+        location[0] = '\0';
+        int body_len = http_parse_response(fd, resp, sizeof(resp), &status, location, sizeof(location));
+        sys_close(fd);
+
+        if (body_len < 0) {
+            printn("http: failed to read response");
+            return;
+        }
+
+        if (status >= 300 && status < 400 && location[0]) {
+            // Follow redirect
+            if (starts_with(location, "http://")) {
+                const char *h = location + 7;
+                const char *sl = h;
+                while (*sl && *sl != '/') sl++;
+                int hl = sl - h;
+                if (hl >= sizeof(cur_host)) hl = sizeof(cur_host) - 1;
+                for (int j = 0; j < hl; j++) cur_host[j] = h[j];
+                cur_host[hl] = '\0';
+                if (*sl) {
+                    int pl = 0;
+                    while (sl[pl] && pl < sizeof(cur_path) - 1) { cur_path[pl] = sl[pl]; pl++; }
+                    cur_path[pl] = '\0';
+                } else {
+                    cur_path[0] = '/';
+                    cur_path[1] = '\0';
+                }
+            } else if (location[0] == '/') {
+                int pl = 0;
+                while (location[pl] && pl < sizeof(cur_path) - 1) { cur_path[pl] = location[pl]; pl++; }
+                cur_path[pl] = '\0';
+            }
+            continue;
+        }
+
+        sys_write(1, resp, body_len);
         return;
     }
-    sys_write(outfd, resp_buf + body_start, total - body_start);
-    sys_close(outfd);
-    print("wget: saved ");
-    print_int(total - body_start);
-    print(" bytes to ");
-    printn(outfile);
+    printn("http: too many redirects");
+}
+
+static void do_wget(const char *host, const char *path, const char *outfile) {
+    char cur_host[64];
+    char cur_path[256];
+    int i = 0;
+    while (host[i] && i < sizeof(cur_host) - 1) { cur_host[i] = host[i]; i++; }
+    cur_host[i] = '\0';
+    i = 0;
+    while (path[i] && i < sizeof(cur_path) - 1) { cur_path[i] = path[i]; i++; }
+    cur_path[i] = '\0';
+
+    for (int redirect_count = 0; redirect_count < 5; redirect_count++) {
+        uint32_t ip = dns_resolve(cur_host);
+        if (ip == 0) {
+            printn("wget: cannot resolve host");
+            return;
+        }
+
+        int fd = sys_socket(2, 1, 0);
+        if (fd < 0) {
+            printn("wget: socket failed");
+            return;
+        }
+
+        struct {
+            uint16_t family;
+            uint16_t port;
+            uint32_t addr;
+            char pad[8];
+        } sa = {2, 0x5000, ip, {0}};
+
+        http_set_timeout(fd, 30);
+
+        if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
+            printn("wget: connect failed");
+            sys_close(fd);
+            return;
+        }
+
+        char req[512];
+        int len = 0;
+        const char *p = "GET ";
+        while (*p) req[len++] = *p++;
+        p = cur_path;
+        while (*p) req[len++] = *p++;
+        p = " HTTP/1.1\r\nHost: ";
+        while (*p) req[len++] = *p++;
+        p = cur_host;
+        while (*p) req[len++] = *p++;
+        p = "\r\nConnection: close\r\n\r\n";
+        while (*p) req[len++] = *p++;
+
+        sys_write(fd, req, len);
+
+        char resp_buf[8192];
+        int status;
+        char location[256];
+        location[0] = '\0';
+        int body_len = http_parse_response(fd, resp_buf, sizeof(resp_buf), &status, location, sizeof(location));
+        sys_close(fd);
+
+        if (body_len < 0) {
+            printn("wget: failed to read response");
+            return;
+        }
+
+        if (status >= 300 && status < 400 && location[0]) {
+            if (starts_with(location, "http://")) {
+                const char *h = location + 7;
+                const char *sl = h;
+                while (*sl && *sl != '/') sl++;
+                int hl = sl - h;
+                if (hl >= sizeof(cur_host)) hl = sizeof(cur_host) - 1;
+                for (int j = 0; j < hl; j++) cur_host[j] = h[j];
+                cur_host[hl] = '\0';
+                if (*sl) {
+                    int pl = 0;
+                    while (sl[pl] && pl < sizeof(cur_path) - 1) { cur_path[pl] = sl[pl]; pl++; }
+                    cur_path[pl] = '\0';
+                } else {
+                    cur_path[0] = '/';
+                    cur_path[1] = '\0';
+                }
+            } else if (location[0] == '/') {
+                int pl = 0;
+                while (location[pl] && pl < sizeof(cur_path) - 1) { cur_path[pl] = location[pl]; pl++; }
+                cur_path[pl] = '\0';
+            }
+            continue;
+        }
+
+        int outfd = sys_open(outfile, 0x241, 0644);
+        if (outfd < 0) {
+            printn("wget: cannot create output file");
+            return;
+        }
+        sys_write(outfd, resp_buf, body_len);
+        sys_close(outfd);
+        print("wget: saved ");
+        print_int(body_len);
+        print(" bytes to ");
+        printn(outfile);
+        return;
+    }
+    printn("wget: too many redirects");
 }
 
 static char api_key[256];
@@ -1657,7 +1908,7 @@ static int do_http_post_body(const char *host, const char *path, const char *bod
     uint32_t ip = dns_resolve(host);
     if (ip == 0) return -1;
 
-    int fd = sys_socket(2, 1, 0); // AF_INET, SOCK_STREAM, 0
+    int fd = sys_socket(2, 1, 0);
     if (fd < 0) return -1;
 
     struct {
@@ -1665,7 +1916,9 @@ static int do_http_post_body(const char *host, const char *path, const char *bod
         uint16_t port;
         uint32_t addr;
         char pad[8];
-    } sa = {2, 0x5000, ip, {0}}; // port 80
+    } sa = {2, 0x5000, ip, {0}};
+
+    http_set_timeout(fd, 30);
 
     if (sys_connect(fd, &sa, sizeof(sa)) < 0) {
         sys_close(fd);
@@ -1715,27 +1968,10 @@ static int do_http_post_body(const char *host, const char *path, const char *bod
     sys_write(fd, req, len);
     sys_write(fd, body, body_len);
 
-    // Read full response into buffer
-    int total = 0;
-    char buf[256];
-    int n;
-    while ((n = sys_read(fd, buf, sizeof(buf))) > 0 && total + n < resp_max - 1) {
-        for (int i = 0; i < n; i++) resp[total++] = buf[i];
-    }
-    resp[total] = '\0';
+    int status;
+    int rlen = http_parse_response(fd, resp, resp_max, &status, NULL, 0);
     sys_close(fd);
-
-    // Find body (after \r\n\r\n)
-    for (int i = 0; i < total - 3; i++) {
-        if (resp[i] == '\r' && resp[i+1] == '\n' && resp[i+2] == '\r' && resp[i+3] == '\n') {
-            // Shift body to start of resp
-            int body_start = i + 4;
-            int body_len = total - body_start;
-            for (int j = 0; j <= body_len; j++) resp[j] = resp[body_start + j];
-            return body_len;
-        }
-    }
-    return total;
+    return rlen;
 }
 
 // Minimal JSON string extractor. Finds key and copies string value into out.
@@ -1911,7 +2147,7 @@ static void ask_ai(const char *prompt) {
     while (*p) body[bl++] = *p++;
     int m = 0;
     while (api_model[m]) body[bl++] = api_model[m++];
-    p = "\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path]. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.\"}";
+    p = "\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path], post <host> <path> <json_body>. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.\"}";
     while (*p) body[bl++] = *p++;
 
     // Add conversation history
@@ -1937,14 +2173,14 @@ static void ask_ai(const char *prompt) {
     while (*p) body[bl++] = *p++;
     body[bl] = '\0';
 
-    char resp[4096];
+    char resp[8192];
     int resp_len = do_http_post_body(api_host, api_path, body, resp, sizeof(resp));
     if (resp_len < 0) {
         printn("[AGENT] API request failed");
         return;
     }
 
-    char content[2048];
+    char content[4096];
     if (json_extract_string(resp, "content", content, sizeof(content))) {
         printn("[AGENT] AI response:");
         printn(content);
@@ -2034,6 +2270,39 @@ static void ask_ai(const char *prompt) {
                 write_file(wpath, wcontent);
                 if (agent_auto_mode) {
                     agent_history_add("system", "File written successfully.");
+                }
+            }
+        } else if (starts_with(content, "post ")) {
+            printn("[AGENT] Executing: post");
+            char *pp = content + 5;
+            char *phost = pp;
+            char *ppath = NULL;
+            char *pbody = NULL;
+            for (int i = 0; pp[i]; i++) {
+                if (pp[i] == ' ') {
+                    pp[i] = '\0';
+                    ppath = &pp[i + 1];
+                    break;
+                }
+            }
+            if (ppath) {
+                for (int i = 0; ppath[i]; i++) {
+                    if (ppath[i] == ' ') {
+                        ppath[i] = '\0';
+                        pbody = &ppath[i + 1];
+                        break;
+                    }
+                }
+            }
+            if (phost && ppath && pbody) {
+                char post_resp[4096];
+                int prlen = do_http_post_body(phost, ppath, pbody, post_resp, sizeof(post_resp));
+                if (agent_auto_mode) {
+                    if (prlen > 0) {
+                        agent_history_add("system", post_resp);
+                    } else {
+                        agent_history_add("system", "POST request failed.");
+                    }
                 }
             }
         }
