@@ -2420,6 +2420,7 @@ static void agent_load_config(void) {
 
 static void run_command(const char *cmd);
 static void write_file(const char *path, const char *content);
+static void append_file(const char *path, const char *content);
 
 #define MAX_AGENT_HISTORY 16
 #define AGENT_MSG_LEN 512
@@ -2629,6 +2630,24 @@ static void ask_ai(const char *prompt) {
                     agent_history_add("system", "File written successfully.");
                 }
             }
+        } else if (starts_with(content, "append ")) {
+            printn("[AGENT] Executing: append");
+            char *ap = content + 7;
+            char *apath = ap;
+            char *acontent = NULL;
+            for (int i = 0; ap[i]; i++) {
+                if (ap[i] == ' ') {
+                    ap[i] = '\0';
+                    acontent = &ap[i + 1];
+                    break;
+                }
+            }
+            if (acontent) {
+                append_file(apath, acontent);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "File appended successfully.");
+                }
+            }
         } else if (starts_with(content, "post ")) {
             printn("[AGENT] Executing: post");
             char *pp = content + 5;
@@ -2776,6 +2795,18 @@ static void write_file(const char *path, const char *content) {
     printn(path);
 }
 
+static void append_file(const char *path, const char *content) {
+    int fd = sys_open(path, 0x441, 0644); // O_WRONLY|O_CREAT|O_APPEND
+    if (fd < 0) {
+        printn("append: cannot open file");
+        return;
+    }
+    sys_write(fd, content, strlen_(content));
+    sys_close(fd);
+    print("Appended to ");
+    printn(path);
+}
+
 // Minimal tar extractor. Supports regular files and directories.
 // Format: 512-byte header blocks, then file data padded to 512 bytes.
 static int octal_to_int(const char *s, int len) {
@@ -2915,7 +2946,7 @@ static void agent_loop(void) {
     agent_load_config();
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");
@@ -3100,6 +3131,8 @@ static void dispatch_command(void) {
         printn("  cp <src> <dst>    Copy file");
         printn("  mv <src> <dst>    Move/rename file");
         printn("  touch <file>      Create empty file");
+        printn("  write <f> <d>    Write content to file");
+        printn("  append <f> <d>   Append content to file");
         printn("  ping <host>       Ping host");
         printn("  wget <h> <p> <f>  Download file via HTTP");
         printn("  install <h> <p> <n> Download binary to /data/bin/");
@@ -3574,6 +3607,40 @@ static void dispatch_command(void) {
             printn("touch: failed");
         } else {
             sys_close(fd);
+        }
+    } else if (starts_with(linebuf, "write ")) {
+        char *rest = linebuf + 6;
+        while (*rest == ' ') rest++;
+        char *path = rest;
+        char *content = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                content = &rest[i + 1];
+                break;
+            }
+        }
+        if (content) {
+            write_file(path, content);
+        } else {
+            printn("Usage: write <file> <content>");
+        }
+    } else if (starts_with(linebuf, "append ")) {
+        char *rest = linebuf + 7;
+        while (*rest == ' ') rest++;
+        char *path = rest;
+        char *content = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                content = &rest[i + 1];
+                break;
+            }
+        }
+        if (content) {
+            append_file(path, content);
+        } else {
+            printn("Usage: append <file> <content>");
         }
     } else if (starts_with(linebuf, "ping ")) {
         do_ping(linebuf + 5);
