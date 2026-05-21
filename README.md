@@ -228,6 +228,36 @@ agent
 ask hello
 ```
 
+### Using HTTPS APIs (OpenAI, Claude, etc.)
+
+Nymoris has no TLS library. Use the included Python proxy to bridge HTTP → HTTPS:
+
+**1. Start the proxy on your host machine:**
+
+```bash
+python3 scripts/https_proxy.py --listen 8080 --target api.openai.com:443
+```
+
+**2. Run QEMU with port forwarding:**
+
+```bash
+make run QEMU_EXTRA="-netdev user,id=net0,hostfwd=tcp::8080-:80"
+```
+
+Or add to the `Makefile` `QEMU_EXTRA` variable permanently.
+
+**3. In nymoris, configure for the proxy:**
+
+```bash
+export NYMORIS_API_KEY=sk-your-key-here
+export NYMORIS_API_HOST=10.0.2.2
+export NYMORIS_API_PATH=/v1/chat/completions
+agent
+ask "list files in current directory"
+```
+
+The proxy listens on HTTP port 8080, forwards requests to HTTPS on the real API, and returns the response. No TLS code needed inside nymoris.
+
 In autonomous mode, the agent:
 1. Sends a prompt to the AI API
 2. Receives a tool call (`exec`, `run`, `read`, `write`)
