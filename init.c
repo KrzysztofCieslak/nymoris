@@ -2817,6 +2817,7 @@ static void dispatch_command(void) {
         printn("  date              Show date and time");
         printn("  df                Show disk usage");
         printn("  mount             Show mounted filesystems");
+        printn("  netstat           Show TCP connections");
         printn("  hostname          Show hostname");
         printn("  whoami            Show current user");
         printn("  id                Show user/group IDs");
@@ -2944,6 +2945,8 @@ static void dispatch_command(void) {
         print_df();
     } else if (strcmp_(linebuf, "mount") == 0) {
         cat_file("/proc/mounts");
+    } else if (strcmp_(linebuf, "netstat") == 0) {
+        cat_file("/proc/net/tcp");
     } else if (strcmp_(linebuf, "hostname") == 0) {
         print_hostname();
     } else if (strcmp_(linebuf, "whoami") == 0) {

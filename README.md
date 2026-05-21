@@ -155,6 +155,7 @@ hello
 | `uptime` | Show system uptime |
 | `df` | Show disk usage |
 | `mount` | Show mounted filesystems |
+| `netstat` | Show TCP connections |
 | `dmesg` | Show kernel messages |
 | `uname` | Show system info |
 | `hostname` | Show hostname |
