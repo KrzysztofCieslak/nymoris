@@ -35,6 +35,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] Environment variables, aliases, command history, job control
 - [x] Semicolon command separators (`cmd1; cmd2; cmd3`)
 - [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
+- [x] Startup scripts (`/data/nymoris.rc`, `/nymoris.rc`)
 - [x] Interactive agent loop (`agent` command)
 - [x] AI API integration — `ask` command calls OpenAI-compatible API
 - [x] Configurable API endpoint, model, and Bearer auth
@@ -146,6 +147,28 @@ mkfs.ext4 disk.img
 # Run QEMU with the disk attached
 make run QEMU_EXTRA="-drive file=disk.img,format=raw,id=disk -device virtio-blk-pci,drive=disk"
 ```
+
+### Startup Scripts
+
+On boot, Nymoris automatically sources startup scripts if they exist:
+
+1. `/data/nymoris.rc` — on persistent storage (survives reboot)
+2. `/nymoris.rc` — in the initramfs (read-only, baked into the image)
+
+Use this to pre-configure environment variables, aliases, and run initial commands:
+
+```bash
+# /data/nymoris.rc
+export NYMORIS_API_KEY=sk-your-key-here
+export NYMORIS_API_MODEL=gpt-4o
+export NYMORIS_API_HOST=10.0.2.2
+export NYMORIS_API_PATH=/v1/chat/completions
+alias h=history
+alias ll='ls -la'
+echo "Welcome back, agent."
+```
+
+Lines starting with `#` are comments and ignored.
 
 ## Shell Commands
 
@@ -393,6 +416,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Netstat command
 - [x] Semicolon command separators (`cmd1; cmd2`)
 - [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
+- [x] Startup scripts (`/data/nymoris.rc`)
 - [ ] ELF Loader
 
 ### Phase 3: Production

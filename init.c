@@ -3693,6 +3693,20 @@ void _start(void) {
     // Try to mount persistent storage
     try_automount();
 
+    // Source startup scripts if they exist
+    int rc_fd = sys_open("/data/nymoris.rc", 0, 0);
+    if (rc_fd >= 0) {
+        sys_close(rc_fd);
+        printn("[Nymoris] sourcing /data/nymoris.rc");
+        source_file("/data/nymoris.rc");
+    }
+    rc_fd = sys_open("/nymoris.rc", 0, 0);
+    if (rc_fd >= 0) {
+        sys_close(rc_fd);
+        printn("[Nymoris] sourcing /nymoris.rc");
+        source_file("/nymoris.rc");
+    }
+
     shell_loop();
 
     sys_exit(0);
