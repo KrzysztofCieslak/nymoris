@@ -2732,9 +2732,18 @@ static void ask_ai(const char *prompt) {
     body[bl] = '\0';
 
     char resp[8192];
-    int resp_len = do_http_post_body(api_host, api_path, body, resp, sizeof(resp));
+    int resp_len = -1;
+    for (int retry = 0; retry < 3; retry++) {
+        resp_len = do_http_post_body(api_host, api_path, body, resp, sizeof(resp));
+        if (resp_len >= 0) break;
+        if (retry < 2) {
+            printn("[AGENT] API request failed, retrying...");
+            struct { uint64_t sec; uint64_t nsec; } req = { 2, 0 };
+            sys_nanosleep(&req, NULL);
+        }
+    }
     if (resp_len < 0) {
-        printn("[AGENT] API request failed");
+        printn("[AGENT] API request failed after retries");
         if (agent_auto_mode) {
             agent_history_add("user", prompt);
             agent_history_add("system", "API request failed. Check network and configuration.");
