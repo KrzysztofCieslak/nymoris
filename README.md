@@ -287,6 +287,10 @@ Inside the `agent` loop:
 | `write <file> <data>` | Write to file (overwrite) |
 | `append <file> <data>` | Append to file |
 | `replace <file> <old> <new>` | Replace first occurrence in file |
+| `find <dir> <name>` | Find file by name |
+| `grep <pattern> <file>` | Search for pattern in file |
+| `mkdir <dir>` | Create directory |
+| `rm <file>` | Remove file |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |

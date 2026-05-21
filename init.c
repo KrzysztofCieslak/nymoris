@@ -2513,7 +2513,7 @@ static char *extract_tool_call(char *text) {
         }
     }
 
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "http ", "post ", "sleep ", "replace ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "http ", "post ", "sleep ", "replace ", "find ", "grep ", "mkdir ", "rm ", NULL};
     char *best = NULL;
     int best_pos = 4096;
 
@@ -2791,6 +2791,82 @@ static void ask_ai(const char *prompt) {
             do_sleep(secs);
             if (agent_auto_mode) {
                 agent_history_add("system", "Sleep completed.");
+            }
+        } else if (starts_with(tc, "find ")) {
+            printn("[AGENT] Executing: find");
+            char *fp = tc + 5;
+            char *fdir = fp;
+            char *fname = NULL;
+            for (int i = 0; fp[i]; i++) {
+                if (fp[i] == ' ') {
+                    fp[i] = '\0';
+                    fname = &fp[i + 1];
+                    break;
+                }
+            }
+            if (fname) {
+                if (agent_auto_mode) {
+                    int pipefd[2];
+                    int cap = capture_setup(pipefd);
+                    find_file(fdir, fname);
+                    if (cap == 0) {
+                        char out[2048];
+                        capture_finish(pipefd, out, sizeof(out));
+                        agent_history_add("system", out);
+                    }
+                } else {
+                    find_file(fdir, fname);
+                }
+            }
+        } else if (starts_with(tc, "grep ")) {
+            printn("[AGENT] Executing: grep");
+            char *gp = tc + 5;
+            char *gpat = gp;
+            char *gpath = NULL;
+            for (int i = 0; gp[i]; i++) {
+                if (gp[i] == ' ') {
+                    gp[i] = '\0';
+                    gpath = &gp[i + 1];
+                    break;
+                }
+            }
+            if (gpath) {
+                if (agent_auto_mode) {
+                    int pipefd[2];
+                    int cap = capture_setup(pipefd);
+                    grep_file(gpat, gpath);
+                    if (cap == 0) {
+                        char out[4096];
+                        capture_finish(pipefd, out, sizeof(out));
+                        agent_history_add("system", out);
+                    }
+                } else {
+                    grep_file(gpat, gpath);
+                }
+            }
+        } else if (starts_with(tc, "mkdir ")) {
+            printn("[AGENT] Executing: mkdir");
+            if (sys_mkdir(tc + 6, 0755) < 0) {
+                printn("[AGENT] mkdir failed");
+                if (agent_auto_mode) {
+                    agent_history_add("system", "mkdir failed.");
+                }
+            } else {
+                if (agent_auto_mode) {
+                    agent_history_add("system", "Directory created.");
+                }
+            }
+        } else if (starts_with(tc, "rm ")) {
+            printn("[AGENT] Executing: rm");
+            if (sys_unlink(tc + 3) < 0) {
+                printn("[AGENT] rm failed");
+                if (agent_auto_mode) {
+                    agent_history_add("system", "rm failed.");
+                }
+            } else {
+                if (agent_auto_mode) {
+                    agent_history_add("system", "File removed.");
+                }
             }
         }
     } else {
