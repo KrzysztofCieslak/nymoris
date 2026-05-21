@@ -28,7 +28,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
 - [x] Interactive agent shell with 40+ built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln)
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
@@ -196,6 +196,7 @@ Lines starting with `#` are comments and ignored.
 | `chmod <mode> <file>` | Change permissions |
 | `stat <file>` | Show file metadata (size, mode, uid, gid, links) |
 | `ln [-s] <target> <link>` | Create hard/symbolic link |
+| `cmp <file1> <file2>` | Compare two files |
 | `find <dir> <name>` | Find file by name |
 | `cd <dir>` | Change directory |
 | `pwd` | Print working directory |
@@ -443,6 +444,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Expanded agent conversation history (16 messages)
 - [x] Stat command (file metadata)
 - [x] Ln command (hard/symbolic links)
+- [x] Cmp command (compare files)
 - [ ] ELF Loader
 
 ### Phase 3: Production

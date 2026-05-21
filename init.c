@@ -1556,6 +1556,43 @@ static void do_ln(const char *target, const char *linkpath, int symlink_) {
     }
 }
 
+static void do_cmp(const char *path1, const char *path2) {
+    int fd1 = sys_open(path1, 0, 0);
+    int fd2 = sys_open(path2, 0, 0);
+    if (fd1 < 0) { printn("cmp: cannot open first file"); if (fd2 >= 0) sys_close(fd2); return; }
+    if (fd2 < 0) { printn("cmp: cannot open second file"); sys_close(fd1); return; }
+    char buf1[256], buf2[256];
+    long offset = 0;
+    int n1, n2;
+    while (1) {
+        n1 = sys_read(fd1, buf1, sizeof(buf1));
+        n2 = sys_read(fd2, buf2, sizeof(buf2));
+        if (n1 < 0) n1 = 0;
+        if (n2 < 0) n2 = 0;
+        int min = n1 < n2 ? n1 : n2;
+        for (int i = 0; i < min; i++) {
+            if (buf1[i] != buf2[i]) {
+                print(path1); print(" "); print(path2); print(" differ: byte ");
+                print_int((int)(offset + i + 1));
+                print(", line ");
+                print_int(1); // simplified
+                printn("");
+                sys_close(fd1); sys_close(fd2);
+                return;
+            }
+        }
+        if (n1 != n2) {
+            printn("cmp: EOF on one file");
+            sys_close(fd1); sys_close(fd2);
+            return;
+        }
+        if (n1 == 0) break;
+        offset += n1;
+    }
+    sys_close(fd1); sys_close(fd2);
+    printn("cmp: files are identical");
+}
+
 static void do_chmod(const char *path, int mode) {
     if (sys_chmod(path, mode) < 0) {
         printn("chmod: failed");
@@ -3102,6 +3139,7 @@ static void dispatch_command(void) {
         printn("  chmod <m> <f>    Change file permissions");
         printn("  stat <file>       Show file metadata");
         printn("  ln [-s] <t> <l>  Create hard/symbolic link");
+        printn("  cmp <f1> <f2>     Compare two files");
         printn("  find <d> <n>     Find file by name");
         printn("  source <file>     Execute commands from file");
         printn("  agent             Start AI agent loop");
@@ -3352,6 +3390,24 @@ static void dispatch_command(void) {
             do_ln(target, linkpath, symlink_);
         } else {
             printn("Usage: ln [-s] <target> <link>");
+        }
+    } else if (starts_with(linebuf, "cmp ")) {
+        char *rest = linebuf + 4;
+        while (*rest == ' ') rest++;
+        char *path1 = rest;
+        char *path2 = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                path2 = &rest[i + 1];
+                break;
+            }
+        }
+        if (path2) {
+            while (*path2 == ' ') path2++;
+            do_cmp(path1, path2);
+        } else {
+            printn("Usage: cmp <file1> <file2>");
         }
     } else if (starts_with(linebuf, "find ")) {
         char *rest = linebuf + 5;
