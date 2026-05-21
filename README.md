@@ -342,6 +342,10 @@ export NYMORIS_API_KEY=sk-your-key-here
 export NYMORIS_API_MODEL=gpt-4o
 export NYMORIS_API_HOST=api.openai.com
 export NYMORIS_API_PATH=/v1/chat/completions
+export NYMORIS_API_TEMPERATURE=0.7
+export NYMORIS_API_MAX_TOKENS=1024
+export NYMORIS_AUTO_MAX_ITER=10
+export NYMORIS_AUTO_INTERVAL=5
 agent
 ```
 

@@ -2405,6 +2405,19 @@ static char api_host[64] = "10.0.2.2";
 static char api_path[128] = "/v1/chat/completions";
 static char api_key[256] = "";
 static char api_model[64] = "gpt-3.5-turbo";
+static char api_temperature[8] = "0.7";
+static char api_max_tokens[8] = "1024";
+static int auto_max_iter_default = 10;
+static int auto_interval_default = 5;
+
+static int parse_int(const char *s) {
+    int n = 0;
+    while (*s >= '0' && *s <= '9') {
+        n = n * 10 + (*s - '0');
+        s++;
+    }
+    return n;
+}
 
 static void agent_load_config(void) {
     const char *key = env_get("NYMORIS_API_KEY");
@@ -2443,6 +2456,28 @@ static void agent_load_config(void) {
         }
         api_path[i] = '\0';
     }
+    const char *temp = env_get("NYMORIS_API_TEMPERATURE");
+    if (temp) {
+        int i = 0;
+        while (temp[i] && i < sizeof(api_temperature) - 1) {
+            api_temperature[i] = temp[i];
+            i++;
+        }
+        api_temperature[i] = '\0';
+    }
+    const char *maxtok = env_get("NYMORIS_API_MAX_TOKENS");
+    if (maxtok) {
+        int i = 0;
+        while (maxtok[i] && i < sizeof(api_max_tokens) - 1) {
+            api_max_tokens[i] = maxtok[i];
+            i++;
+        }
+        api_max_tokens[i] = '\0';
+    }
+    const char *auto_iter = env_get("NYMORIS_AUTO_MAX_ITER");
+    if (auto_iter) auto_max_iter_default = parse_int(auto_iter);
+    const char *auto_intv = env_get("NYMORIS_AUTO_INTERVAL");
+    if (auto_intv) auto_interval_default = parse_int(auto_intv);
 }
 
 static void run_command(const char *cmd);
@@ -2684,7 +2719,15 @@ static void ask_ai(const char *prompt) {
     p = ", {\"role\":\"user\",\"content\":\"";
     while (*p) body[bl++] = *p++;
     append_json_string(body, &bl, sizeof(body) - 1, prompt);
-    p = "\"}]}";
+    p = "\"}],\"temperature\":";
+    while (*p) body[bl++] = *p++;
+    int t = 0;
+    while (api_temperature[t]) body[bl++] = api_temperature[t++];
+    p = ",\"max_tokens\":";
+    while (*p) body[bl++] = *p++;
+    int mt = 0;
+    while (api_max_tokens[mt]) body[bl++] = api_max_tokens[mt++];
+    p = "}";
     while (*p) body[bl++] = *p++;
     body[bl] = '\0';
 
@@ -3553,8 +3596,8 @@ static void do_tar_extract(const char *tarfile) {
 }
 
 static void agent_auto_loop(int max_iter, int interval_secs) {
-    if (max_iter <= 0) max_iter = 10;
-    if (interval_secs <= 0) interval_secs = 5;
+    if (max_iter <= 0) max_iter = auto_max_iter_default;
+    if (interval_secs <= 0) interval_secs = auto_interval_default;
     agent_auto_mode = 1;
     interrupted = 0;
     printn("\n[AGENT] Autonomous mode started.");
@@ -3701,23 +3744,27 @@ static void agent_loop(void) {
             agent_load_history(path);
         } else if (strcmp_(action, "config") == 0) {
             printn("[AGENT] Configuration:");
-            print("  API_HOST:  "); printn(api_host);
-            print("  API_PATH:  "); printn(api_path);
-            print("  API_MODEL: "); printn(api_model);
-            print("  API_KEY:   ");
+            print("  API_HOST:   "); printn(api_host);
+            print("  API_PATH:   "); printn(api_path);
+            print("  API_MODEL:  "); printn(api_model);
+            print("  API_KEY:    ");
             if (api_key[0]) {
                 printn("***set***");
             } else {
                 printn("(not set)");
             }
+            print("  TEMP:       "); printn(api_temperature);
+            print("  MAX_TOKENS: "); printn(api_max_tokens);
+            print("  AUTO_ITER:  "); print_int(auto_max_iter_default); printn("");
+            print("  AUTO_INTV:  "); print_int(auto_interval_default); printn(" sec");
             const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
-            print("  SYSTEM:    ");
+            print("  SYSTEM:     ");
             if (sp && sp[0]) {
                 printn("custom");
             } else {
                 printn("default");
             }
-            printn("[AGENT] Set via env: NYMORIS_API_KEY, NYMORIS_API_HOST, NYMORIS_API_MODEL, NYMORIS_API_PATH, NYMORIS_SYSTEM_PROMPT");
+            printn("[AGENT] Set via env: NYMORIS_API_KEY, NYMORIS_API_HOST, NYMORIS_API_MODEL, NYMORIS_API_PATH, NYMORIS_SYSTEM_PROMPT, NYMORIS_API_TEMPERATURE, NYMORIS_API_MAX_TOKENS, NYMORIS_AUTO_MAX_ITER, NYMORIS_AUTO_INTERVAL");
         } else if (strcmp_(action, "run") == 0) {
             if (arg) {
                 run_command(arg);
