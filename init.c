@@ -2465,10 +2465,24 @@ static void agent_history_add(const char *role, const char *content) {
         r++;
     }
     agent_roles[idx][r] = '\0';
+    int len = 0;
+    while (content[len]) len++;
     int c = 0;
-    while (content[c] && c < AGENT_MSG_LEN - 1) {
-        agent_msgs[idx][c] = content[c];
-        c++;
+    if (len > AGENT_MSG_LEN - 20) {
+        while (c < AGENT_MSG_LEN - 20) {
+            agent_msgs[idx][c] = content[c];
+            c++;
+        }
+        const char *trunc = " ... (truncated)";
+        int t = 0;
+        while (trunc[t] && c < AGENT_MSG_LEN - 1) {
+            agent_msgs[idx][c++] = trunc[t++];
+        }
+    } else {
+        while (c < len && c < AGENT_MSG_LEN - 1) {
+            agent_msgs[idx][c] = content[c];
+            c++;
+        }
     }
     agent_msgs[idx][c] = '\0';
     agent_history_next++;
