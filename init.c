@@ -499,6 +499,12 @@ static void jobs_reap(void) {
     }
 }
 
+// Reap any stray zombie children not in the job table
+static void reap_stray_children(void) {
+    int status;
+    while (sys_wait4(-1, &status, 1, NULL) > 0) {}
+}
+
 static void jobs_add(int pid, const char *cmd) {
     for (int i = 0; i < MAX_JOBS; i++) {
         if (!jobs[i].active) {
@@ -818,6 +824,19 @@ static void read_line(void) {
         int n = sys_read(0, &c, 1);
         if (n <= 0) break;
         if (c == '\n' || c == '\r') break;
+        if (c == 3) { // Ctrl+C
+            linepos = 0;
+            linebuf[0] = '\0';
+            printn("^C");
+            return;
+        }
+        if (c == 127 || c == 8) { // Backspace / DEL
+            if (linepos > 0) {
+                linepos--;
+                print("\b \b");
+            }
+            continue;
+        }
         linebuf[linepos++] = c;
     }
     linebuf[linepos] = '\0';
@@ -3068,6 +3087,7 @@ static void shell_loop(void) {
 
     while (1) {
         jobs_reap();
+        reap_stray_children();
 
         print("$ ");
         read_line();
@@ -3255,10 +3275,12 @@ void _start(void) {
     sys_mkdir("/sys", 0755);
     sys_mkdir("/dev", 0755);
     sys_mkdir("/tmp", 0755);
+    sys_mkdir("/data", 0755);
     sys_mount("proc", "/proc", "proc", 0, NULL);
     sys_mount("sysfs", "/sys", "sysfs", 0, NULL);
     sys_mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
     sys_mount("tmpfs", "/tmp", "tmpfs", 0, NULL);
+    sys_mount("tmpfs", "/data", "tmpfs", 0, NULL);
 
     // Open /dev/console for stdin/stdout/stderr
     int fd = sys_open("/dev/console", 2, 0); // O_RDWR

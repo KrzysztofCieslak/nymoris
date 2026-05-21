@@ -107,7 +107,7 @@ nymoris/
 
 1. Linux kernel boots and mounts the initramfs
 2. Kernel executes `/init` as PID 1
-3. `init` mounts proc, sysfs, devtmpfs, tmpfs
+3. `init` mounts proc, sysfs, devtmpfs, tmpfs (on `/tmp` and `/data`)
 4. `init` opens `/dev/console` for stdin/stdout/stderr
 5. Interactive agent shell starts
 
@@ -200,6 +200,7 @@ Inside the `agent` loop:
 | `read <file>` | Read file contents |
 | `write <file> <data>` | Write to file |
 | `http <host> [path]` | HTTP GET |
+| `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |
 | `history` | Show conversation history |
 | `reset` | Clear conversation history |
@@ -290,10 +291,13 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 - [x] Local LLM inference (llm.c)
 
 ### Phase 2: Advanced Agent
+- [x] HTTPS proxy for AI APIs (`scripts/https_proxy.py`)
+- [x] Better HTTP client (redirects, chunked encoding, timeouts)
+- [x] Writable `/data` tmpfs mount
+- [x] Agent `post` tool for HTTP POST
 - [ ] File system persistence (ext4/FAT driver)
 - [ ] Multi-process agent runtime
 - [ ] Container-style isolation (namespaces)
-- [ ] Better HTTP client (TLS proxy, chunked encoding)
 
 ### Phase 3: Production
 - [ ] Full agent framework support
