@@ -205,6 +205,13 @@ Lines starting with `#` are comments and ignored.
 | `cd <dir>` | Change directory |
 | `pwd` | Print working directory |
 
+**Escape sequences in `write`, `append`, and `replace`:**
+`\n` (newline), `\t` (tab), `\\` (backslash), `\r` (carriage return) are interpreted.
+
+```bash
+write /data/hello "Hello\nWorld\n"
+```
+
 ### System
 
 | Command | Description |

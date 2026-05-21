@@ -2419,8 +2419,8 @@ static void agent_load_config(void) {
 }
 
 static void run_command(const char *cmd);
-static void write_file(const char *path, const char *content);
-static void append_file(const char *path, const char *content);
+static void write_file(const char *path, char *content);
+static void append_file(const char *path, char *content);
 
 #define MAX_AGENT_HISTORY 16
 #define AGENT_MSG_LEN 512
@@ -2783,7 +2783,24 @@ static void run_command(const char *cmd) {
     }
 }
 
-static void write_file(const char *path, const char *content) {
+static void unescape(char *s) {
+    int r = 0, w = 0;
+    while (s[r]) {
+        if (s[r] == '\\' && s[r + 1]) {
+            if (s[r + 1] == 'n') { s[w++] = '\n'; r += 2; }
+            else if (s[r + 1] == 't') { s[w++] = '\t'; r += 2; }
+            else if (s[r + 1] == '\\') { s[w++] = '\\'; r += 2; }
+            else if (s[r + 1] == 'r') { s[w++] = '\r'; r += 2; }
+            else { s[w++] = s[r++]; }
+        } else {
+            s[w++] = s[r++];
+        }
+    }
+    s[w] = '\0';
+}
+
+static void write_file(const char *path, char *content) {
+    unescape(content);
     int fd = sys_open(path, 0x241, 0644); // O_WRONLY|O_CREAT|O_TRUNC
     if (fd < 0) {
         printn("write: cannot create file");
@@ -2795,7 +2812,8 @@ static void write_file(const char *path, const char *content) {
     printn(path);
 }
 
-static void append_file(const char *path, const char *content) {
+static void append_file(const char *path, char *content) {
+    unescape(content);
     int fd = sys_open(path, 0x441, 0644); // O_WRONLY|O_CREAT|O_APPEND
     if (fd < 0) {
         printn("append: cannot open file");
