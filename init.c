@@ -2880,6 +2880,64 @@ static void do_replace(const char *path, const char *old, const char *new_) {
     printn("replace: done");
 }
 
+static void do_sort(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("sort: cannot open file");
+        return;
+    }
+    static char sbuf[65536];
+    static char *lines[1024];
+    int n = sys_read(fd, sbuf, sizeof(sbuf) - 1);
+    sys_close(fd);
+    if (n < 0) {
+        printn("sort: cannot read file");
+        return;
+    }
+    sbuf[n] = '\0';
+
+    int line_count = 0;
+    lines[0] = sbuf;
+    for (int i = 0; i < n && line_count < 1023; i++) {
+        if (sbuf[i] == '\n') {
+            sbuf[i] = '\0';
+            line_count++;
+            lines[line_count] = sbuf + i + 1;
+        }
+    }
+    // Remove empty trailing line
+    if (line_count > 0 && lines[line_count][0] == '\0') {
+        line_count--;
+    }
+
+    // Bubble sort
+    for (int i = 0; i < line_count - 1; i++) {
+        for (int j = 0; j < line_count - i - 1; j++) {
+            int cmp = 0;
+            char *a = lines[j];
+            char *b = lines[j + 1];
+            while (*a && *b) {
+                if (*a != *b) {
+                    cmp = (unsigned char)*a - (unsigned char)*b;
+                    break;
+                }
+                a++;
+                b++;
+            }
+            if (cmp == 0) cmp = (unsigned char)*a - (unsigned char)*b;
+            if (cmp > 0) {
+                char *tmp = lines[j];
+                lines[j] = lines[j + 1];
+                lines[j + 1] = tmp;
+            }
+        }
+    }
+
+    for (int i = 0; i <= line_count; i++) {
+        printn(lines[i]);
+    }
+}
+
 // Minimal tar extractor. Supports regular files and directories.
 // Format: 512-byte header blocks, then file data padded to 512 bytes.
 static int octal_to_int(const char *s, int len) {
@@ -3195,6 +3253,7 @@ static void dispatch_command(void) {
         printn("  base64 -d <file>  Base64 decode file");
         printn("  grep <p> <file>   Search for pattern");
         printn("  wc <file>         Count lines/words/bytes");
+        printn("  sort <file>       Sort lines alphabetically");
         printn("  mkdir <dir>       Create directory");
         printn("  rmdir <dir>       Remove empty directory");
         printn("  echo <text>       Print text");
@@ -3598,6 +3657,10 @@ static void dispatch_command(void) {
         }
     } else if (starts_with(linebuf, "wc ")) {
         wc_file(linebuf + 3);
+    } else if (starts_with(linebuf, "sort ")) {
+        char *path = linebuf + 5;
+        while (*path == ' ') path++;
+        do_sort(path);
     } else if (starts_with(linebuf, "mkdir ")) {
         if (sys_mkdir(linebuf + 6, 0755) < 0) {
             printn("mkdir: failed");
