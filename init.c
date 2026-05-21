@@ -2575,7 +2575,7 @@ static void ask_ai(const char *prompt) {
     while (*p) body[bl++] = *p++;
     const char *sys_prompt = env_get("NYMORIS_SYSTEM_PROMPT");
     if (!sys_prompt || !sys_prompt[0]) {
-        sys_prompt = "You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path], post <host> <path> <json_body>. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.";
+        sys_prompt = "You are an AI agent running inside Nymoris OS. Available tools: run <cmd>, exec <cmd>, read <file>, write <file> <content>, append <file> <content>, replace <file> <old> <new>, find <dir> <name>, grep <pattern> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, http <host> [path], post <host> <path> <body>, sleep <secs>. Use 'exec' for built-in shell commands. Respond with the tool call only, no explanation.";
     }
     append_json_string(body, &bl, sizeof(body) - 1, sys_prompt);
     p = "\"}";
