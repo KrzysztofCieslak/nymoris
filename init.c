@@ -2324,6 +2324,30 @@ static void ask_ai(const char *prompt) {
                     }
                 }
             }
+        } else if (starts_with(content, "http ")) {
+            printn("[AGENT] Executing: http");
+            char *hp = content + 5;
+            char *hhost = hp;
+            char *hpath = NULL;
+            for (int i = 0; hp[i]; i++) {
+                if (hp[i] == ' ') {
+                    hp[i] = '\0';
+                    hpath = &hp[i + 1];
+                    break;
+                }
+            }
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                do_http_get(hhost, hpath ? hpath : "/");
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                do_http_get(hhost, hpath ? hpath : "/");
+            }
         }
     } else {
         printn("[AGENT] Could not parse AI response");
