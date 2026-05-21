@@ -2673,6 +2673,22 @@ static void ask_ai(const char *prompt) {
     int resp_len = do_http_post_body(api_host, api_path, body, resp, sizeof(resp));
     if (resp_len < 0) {
         printn("[AGENT] API request failed");
+        if (agent_auto_mode) {
+            agent_history_add("user", prompt);
+            agent_history_add("system", "API request failed. Check network and configuration.");
+        }
+        return;
+    }
+
+    // Check for API errors
+    char error_msg[512];
+    if (json_extract_string(resp, "error", error_msg, sizeof(error_msg))) {
+        printn("[AGENT] API error:");
+        printn(error_msg);
+        if (agent_auto_mode) {
+            agent_history_add("user", prompt);
+            agent_history_add("system", error_msg);
+        }
         return;
     }
 
