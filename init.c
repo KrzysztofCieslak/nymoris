@@ -3410,33 +3410,64 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
     if (max_iter <= 0) max_iter = 10;
     if (interval_secs <= 0) interval_secs = 5;
     agent_auto_mode = 1;
+    interrupted = 0;
     printn("\n[AGENT] Autonomous mode started.");
     print("[AGENT] Max iterations: "); print_int(max_iter); printn("");
     print("[AGENT] Interval: "); print_int(interval_secs); printn(" seconds");
-    printn("[AGENT] Press Ctrl+C or type 'interrupt' to stop (not implemented).");
+    printn("[AGENT] Press Ctrl+C to stop.");
 
-    for (int iter = 0; iter < max_iter; iter++) {
+    char last_tool[64] = "";
+    int repeat_count = 0;
+
+    for (int iter = 0; iter < max_iter && !interrupted; iter++) {
         print("\n[AGENT] === Iteration "); print_int(iter + 1); print(" / "); print_int(max_iter); printn(" ===");
 
         char prompt[512];
         int p = 0;
         const char *s = "You are running autonomously on Nymoris OS. Decide what to do next. ";
         while (*s) prompt[p++] = *s++;
-        s = "Available: exec <shell_cmd>, run <binary>, read <file>, write <file> <content>, http <host> [path]. ";
+        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, http, post, sleep. ";
         while (*s) prompt[p++] = *s++;
         s = "Be concise. Execute one tool per response.";
         while (*s) prompt[p++] = *s++;
         prompt[p] = '\0';
 
+        int prev_count = agent_history_count;
         ask_ai(prompt);
 
-        if (iter < max_iter - 1) {
+        // Loop detection: check if the last assistant message repeats
+        if (agent_history_count > prev_count) {
+            int idx = (agent_history_next - 1) % MAX_AGENT_HISTORY;
+            if (strcmp_(agent_roles[idx], "assistant") == 0) {
+                if (strcmp_(agent_msgs[idx], last_tool) == 0) {
+                    repeat_count++;
+                    if (repeat_count >= 2) {
+                        printn("[AGENT] Detected repeating tool calls. Stopping auto mode.");
+                        break;
+                    }
+                } else {
+                    repeat_count = 0;
+                    int i = 0;
+                    while (agent_msgs[idx][i] && i < 63) {
+                        last_tool[i] = agent_msgs[idx][i];
+                        i++;
+                    }
+                    last_tool[i] = '\0';
+                }
+            }
+        }
+
+        if (iter < max_iter - 1 && !interrupted) {
             do_sleep(interval_secs);
         }
     }
 
     agent_auto_mode = 0;
-    printn("\n[AGENT] Autonomous mode completed.");
+    if (interrupted) {
+        printn("\n[AGENT] Autonomous mode interrupted.");
+    } else {
+        printn("\n[AGENT] Autonomous mode completed.");
+    }
 }
 
 static void agent_loop(void) {
