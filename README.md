@@ -26,13 +26,17 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 ## Current Status
 
-- [x] Boots Linux kernel + custom initramfs in QEMU
-- [x] Interactive agent shell with built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir)
+- [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
+- [x] Interactive agent shell with 40+ built-in commands
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch)
 - [x] HTTP client via raw sockets (GET + POST)
-- [x] System control (reboot, poweroff)
+- [x] ICMP ping via raw sockets
+- [x] System control (reboot, poweroff, free, uptime, ps, kill)
+- [x] Environment variables, aliases, command history, job control
 - [x] Interactive agent loop (`agent` command)
 - [x] AI API integration — `ask` command calls OpenAI-compatible API
+- [x] Configurable API endpoint, model, and Bearer auth
+- [x] **Agent output capture** — auto mode feeds command output back to AI
 - [x] Minimal JSON parser for API responses
 - [x] Local LLM inference (llm.c + convert.py)
 
@@ -66,17 +70,22 @@ In the serial console, type `help` to see available commands.
 
 ```bash
 # Compile init program
-x86_64-elf-gcc -nostdlib -static -O2 -o /tmp/nymoris-init init.c
+x86_64-elf-gcc -nostdlib -static -O2 -fno-inline -o /tmp/nymoris-init init.c llm.c
 
 # Create initramfs
 mkdir -p initramfs/{dev,proc,sys,tmp,bin}
 cp /tmp/nymoris-init initramfs/init
 chmod +x initramfs/init
+cp -f test_model.nymollm initramfs/model.nymollm 2>/dev/null || true
 cd initramfs && find . | cpio -o -H newc | gzip > ../initramfs.cpio.gz
 
-# Boot in QEMU
+# Boot in QEMU (serial)
 qemu-system-x86_64 -kernel vmlinuz -initrd initramfs.cpio.gz \
   -m 512M -nographic -append "console=ttyS0 panic=1"
+
+# Boot in QEMU (GUI window)
+qemu-system-x86_64 -kernel vmlinuz -initrd initramfs.cpio.gz \
+  -m 512M -append "console=tty0 panic=1 quiet loglevel=0"
 ```
 
 ## Project Structure
@@ -86,34 +95,97 @@ nymoris/
 ├── vmlinuz              # Linux kernel (Alpine LTS)
 ├── initramfs.cpio.gz    # Gzipped cpio initramfs
 ├── init.c               # Custom init program (PID 1)
-├── agent/               # Rust agent program (experimental)
+├── llm.c                # Local LLM inference engine
+├── llm.h                # LLM engine header
 ├── Makefile             # Build automation
-└── CLAUDE.md            # Developer guidance
+├── CLAUDE.md            # Developer guidance
+├── convert.py           # Model conversion script
+└── agent/               # Experimental Rust agent
 ```
 
 ### Boot Sequence
 
 1. Linux kernel boots and mounts the initramfs
 2. Kernel executes `/init` as PID 1
-3. `init` opens `/dev/console` for stdin/stdout/stderr
-4. `init` mounts proc, sysfs, devtmpfs, tmpfs
+3. `init` mounts proc, sysfs, devtmpfs, tmpfs
+4. `init` opens `/dev/console` for stdin/stdout/stderr
 5. Interactive agent shell starts
 
-### Agent Shell Commands
+## Shell Commands
+
+### Filesystem
 
 | Command | Description |
 |---------|-------------|
-| `help` | Show available commands |
-| `cat <file>` | Display file contents |
 | `ls [dir]` | List directory |
+| `cat <file>` | Display file contents |
+| `head <file> [n]` | Show first n lines |
+| `tail <file> [n]` | Show last n lines |
+| `grep <pattern> <file>` | Search for pattern |
+| `wc <file>` | Count lines/words/bytes |
 | `mkdir <dir>` | Create directory |
-| `echo <text>` | Print text |
-| `http <host> [path]` | HTTP GET to host |
+| `rmdir <dir>` | Remove empty directory |
+| `rm <file>` | Remove file |
+| `cp <src> <dst>` | Copy file |
+| `mv <src> <dst>` | Move/rename file |
+| `touch <file>` | Create empty file |
+| `chmod <mode> <file>` | Change permissions |
+| `find <dir> <name>` | Find file by name |
+| `cd <dir>` | Change directory |
+| `pwd` | Print working directory |
+
+### System
+
+| Command | Description |
+|---------|-------------|
+| `ps` | List processes |
+| `kill <pid> [sig]` | Send signal to process |
+| `free` | Show memory usage |
+| `uptime` | Show system uptime |
+| `df` | Show disk usage |
+| `mount` | Show mounted filesystems |
+| `dmesg` | Show kernel messages |
+| `uname` | Show system info |
+| `hostname` | Show hostname |
+| `whoami` | Show current user |
+| `id` | Show user/group IDs |
+| `date` | Show date and time |
+| `clear` | Clear screen |
+| `reboot` | Reboot system |
+| `exit` | Power off |
+
+### Network
+
+| Command | Description |
+|---------|-------------|
+| `ping <host>` | Ping host via ICMP |
+| `http <host> [path]` | HTTP GET |
+| `wget <host> <path> <outfile>` | Download file |
+
+### Environment & Shell
+
+| Command | Description |
+|---------|-------------|
+| `env` | Show environment variables |
+| `export KEY=VALUE` | Set environment variable |
+| `alias [name[=value]]` | Show/set alias |
+| `unalias <name>` | Remove alias |
+| `history` | Show command history |
 | `sleep <secs>` | Sleep |
+| `echo <text>` | Print text |
+| `seq [start] [end] [step]` | Print number sequence |
+| `source <file>` | Execute commands from file |
+| `jobs` | List background jobs |
+| `cmd &` | Run command in background |
+| `cmd > file` | Redirect output to file |
+| `cmd < file` | Redirect input from file |
+
+### Agent & LLM
+
+| Command | Description |
+|---------|-------------|
 | `agent` | Start AI agent loop |
 | `llm <model> <prompt>` | Run local LLM inference |
-| `reboot` | Reboot the system |
-| `exit` | Power off |
 
 ### Agent Loop Commands
 
@@ -121,17 +193,51 @@ Inside the `agent` loop:
 
 | Command | Description |
 |---------|-------------|
-| `run <cmd>` | Execute shell command |
+| `ask <prompt>` | Ask AI (calls remote API) |
+| `auto [n] [s]` | Start autonomous mode (n iterations, s seconds interval) |
+| `run <cmd>` | Execute binary command |
+| `exec <cmd>` | Execute built-in shell command |
 | `read <file>` | Read file contents |
 | `write <file> <data>` | Write to file |
-| `ask <prompt>` | Ask AI (calls API) |
 | `http <host> [path]` | HTTP GET |
 | `sleep <secs>` | Sleep |
+| `history` | Show conversation history |
+| `reset` | Clear conversation history |
+| `config` | Show API configuration |
 | `done` / `quit` | Exit agent loop |
+
+## Configuring the AI API
+
+Set environment variables before entering the agent loop:
+
+```bash
+export NYMORIS_API_KEY=sk-your-key-here
+export NYMORIS_API_MODEL=gpt-4o
+export NYMORIS_API_HOST=api.openai.com
+export NYMORIS_API_PATH=/v1/chat/completions
+agent
+```
+
+For local models (e.g., Ollama), use without an API key:
+
+```bash
+export NYMORIS_API_MODEL=llama3.2
+export NYMORIS_API_HOST=10.0.2.2
+export NYMORIS_API_PATH=/v1/chat/completions
+agent
+ask hello
+```
+
+In autonomous mode, the agent:
+1. Sends a prompt to the AI API
+2. Receives a tool call (`exec`, `run`, `read`, `write`)
+3. Executes it and **captures the output**
+4. Feeds the captured output back as a "system" message
+5. Repeats
 
 ## Why Linux?
 
-Nymoris was previously built as a custom kernel ("Nymoris") from scratch. While educational, that approach required years of work to achieve basic functionality. By building on Linux:
+Nymoris was previously built as a custom kernel from scratch. While educational, that approach required years of work to achieve basic functionality. By building on Linux:
 
 - **Proven hardware support** — drivers for virtually all x86_64 hardware
 - **Network stack** — TCP/IP, routing, firewalling
@@ -142,22 +248,24 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 
 ## Roadmap
 
-### Phase 1: Agent MVP (Weeks)
+### Phase 1: Agent MVP (Done)
 - [x] Linux kernel + custom initramfs boot
-- [x] Minimal init with shell
+- [x] Minimal init with shell (40+ commands)
 - [x] TCP networking (via Linux kernel sockets)
-- [x] HTTP client
-- [x] Interactive agent loop
 - [x] HTTP client with JSON parsing
-- [x] Agent loop calling remote AI APIs
+- [x] Interactive agent loop
+- [x] Agent calling remote AI APIs
+- [x] Agent output capture (auto mode)
+- [x] Configurable API endpoint + Bearer auth
+- [x] Local LLM inference (llm.c)
 
-### Phase 2: Advanced Agent (Months)
-- [ ] File system persistence
+### Phase 2: Advanced Agent
+- [ ] File system persistence (ext4/FAT driver)
 - [ ] Multi-process agent runtime
-- [x] Local LLM inference (llm.c + convert.py) (GGUF)
-- [ ] Container-style isolation
+- [ ] Container-style isolation (namespaces)
+- [ ] Better HTTP client (TLS proxy, chunked encoding)
 
-### Phase 3: Production (Months)
+### Phase 3: Production
 - [ ] Full agent framework support
 - [ ] Package manager
 - [ ] Real hardware deployment
