@@ -33,6 +33,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] ICMP ping via raw sockets
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
 - [x] Environment variables, aliases, command history, job control
+- [x] Semicolon command separators (`cmd1; cmd2; cmd3`)
 - [x] Interactive agent loop (`agent` command)
 - [x] AI API integration — `ask` command calls OpenAI-compatible API
 - [x] Configurable API endpoint, model, and Bearer auth
@@ -193,6 +194,7 @@ hello
 | `cmd &` | Run command in background |
 | `cmd > file` | Redirect output to file |
 | `cmd < file` | Redirect input from file |
+| `cmd1; cmd2` | Run multiple commands sequentially |
 
 ### Agent & LLM
 
@@ -362,6 +364,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Better local LLM (f16, Q4_0 quantization)
 - [x] Tar archive extractor
 - [x] Netstat command
+- [x] Semicolon command separators (`cmd1; cmd2`)
 - [ ] File system persistence (ext4/FAT driver)
 - [ ] ELF Loader
 

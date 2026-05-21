@@ -3365,141 +3365,182 @@ static void shell_loop(void) {
         expand_vars();
         expand_alias();
 
-        // Parse background '&', output redirection '>', input redirection '<'
-        int bg = 0;
-        char redirect_file[64];
-        char input_file[64];
-        int redirect = 0;
-        int input_redirect = 0;
-        int saved_stdout = -1;
-        int saved_stdin = -1;
+        // Split line into commands separated by ';'
+        char cmd_segments[8][512];
+        int seg_count = 0;
+        char *seg_start = linebuf;
+        while (*seg_start == ' ') seg_start++;
 
-        // Check for trailing '&'
-        int cmd_len = 0;
-        while (linebuf[cmd_len]) cmd_len++;
-        while (cmd_len > 0 && linebuf[cmd_len - 1] == ' ') cmd_len--;
-        if (cmd_len > 0 && linebuf[cmd_len - 1] == '&') {
-            bg = 1;
-            cmd_len--;
+        while (*seg_start && seg_count < 8) {
+            char *seg_end = seg_start;
+            while (*seg_end && *seg_end != ';') seg_end++;
+
+            int seg_len = seg_end - seg_start;
+            while (seg_len > 0 && seg_start[seg_len - 1] == ' ') seg_len--;
+
+            if (seg_len > 0 && seg_len < 512) {
+                for (int i = 0; i < seg_len; i++) {
+                    cmd_segments[seg_count][i] = seg_start[i];
+                }
+                cmd_segments[seg_count][seg_len] = '\0';
+                seg_count++;
+            }
+
+            if (*seg_end == ';') {
+                seg_start = seg_end + 1;
+                while (*seg_start == ' ') seg_start++;
+            } else {
+                break;
+            }
+        }
+
+        // Execute each segment sequentially
+        for (int seg = 0; seg < seg_count; seg++) {
+            // Copy segment into linebuf for dispatch_command
+            int i = 0;
+            while (cmd_segments[seg][i] && i < sizeof(linebuf) - 1) {
+                linebuf[i] = cmd_segments[seg][i];
+                i++;
+            }
+            linebuf[i] = '\0';
+            linepos = i;
+
+            // Parse background '&', output redirection '>', input redirection '<'
+            int bg = 0;
+            char redirect_file[64];
+            char input_file[64];
+            int redirect = 0;
+            int input_redirect = 0;
+            int saved_stdout = -1;
+            int saved_stdin = -1;
+
+            // Check for trailing '&'
+            int cmd_len = 0;
+            while (linebuf[cmd_len]) cmd_len++;
             while (cmd_len > 0 && linebuf[cmd_len - 1] == ' ') cmd_len--;
-            linebuf[cmd_len] = '\0';
-        }
+            if (cmd_len > 0 && linebuf[cmd_len - 1] == '&') {
+                bg = 1;
+                cmd_len--;
+                while (cmd_len > 0 && linebuf[cmd_len - 1] == ' ') cmd_len--;
+                linebuf[cmd_len] = '\0';
+            }
 
-        // Check for '>' redirection (look for " > ")
-        char *gt = NULL;
-        for (int i = 1; linebuf[i]; i++) {
-            if (linebuf[i] == '>' && linebuf[i-1] == ' ') {
-                gt = &linebuf[i];
+            // Check for '>' redirection (look for " > ")
+            char *gt = NULL;
+            for (int i = 1; linebuf[i]; i++) {
+                if (linebuf[i] == '>' && linebuf[i-1] == ' ') {
+                    gt = &linebuf[i];
+                }
             }
-        }
-        if (gt) {
-            *gt = '\0';
-            gt++;
-            while (*gt == ' ') gt++;
-            int j = 0;
-            while (*gt && *gt != ' ' && *gt != '&' && j < 63) {
-                redirect_file[j++] = *gt++;
+            if (gt) {
+                *gt = '\0';
+                gt++;
+                while (*gt == ' ') gt++;
+                int j = 0;
+                while (*gt && *gt != ' ' && *gt != '&' && j < 63) {
+                    redirect_file[j++] = *gt++;
+                }
+                redirect_file[j] = '\0';
+                redirect = 1;
             }
-            redirect_file[j] = '\0';
-            redirect = 1;
-        }
 
-        // Check for '<' input redirection (look for " < ")
-        char *lt = NULL;
-        for (int i = 1; linebuf[i]; i++) {
-            if (linebuf[i] == '<' && linebuf[i-1] == ' ') {
-                lt = &linebuf[i];
+            // Check for '<' input redirection (look for " < ")
+            char *lt = NULL;
+            for (int i = 1; linebuf[i]; i++) {
+                if (linebuf[i] == '<' && linebuf[i-1] == ' ') {
+                    lt = &linebuf[i];
+                }
             }
-        }
-        if (lt) {
-            *lt = '\0';
-            lt++;
-            while (*lt == ' ') lt++;
-            int j = 0;
-            while (*lt && *lt != ' ' && *lt != '&' && *lt != '>' && j < 63) {
-                input_file[j++] = *lt++;
+            if (lt) {
+                *lt = '\0';
+                lt++;
+                while (*lt == ' ') lt++;
+                int j = 0;
+                while (*lt && *lt != ' ' && *lt != '&' && *lt != '>' && j < 63) {
+                    input_file[j++] = *lt++;
+                }
+                input_file[j] = '\0';
+                input_redirect = 1;
             }
-            input_file[j] = '\0';
-            input_redirect = 1;
-        }
 
-        // Set up output redirection
-        if (redirect) {
-            int fd = sys_open(redirect_file, 0x241, 0644);
-            if (fd < 0) {
-                print("redirect: cannot open ");
-                printn(redirect_file);
-                continue;
+            // Set up output redirection
+            if (redirect) {
+                int fd = sys_open(redirect_file, 0x241, 0644);
+                if (fd < 0) {
+                    print("redirect: cannot open ");
+                    printn(redirect_file);
+                    continue;
+                }
+                saved_stdout = 63;
+                sys_dup2(1, saved_stdout);
+                sys_dup2(fd, 1);
+                sys_close(fd);
             }
-            saved_stdout = 63;
-            sys_dup2(1, saved_stdout);
-            sys_dup2(fd, 1);
-            sys_close(fd);
-        }
 
-        // Set up input redirection
-        if (input_redirect) {
-            int fd = sys_open(input_file, 0, 0);
-            if (fd < 0) {
-                print("redirect: cannot open ");
-                printn(input_file);
-                continue;
+            // Set up input redirection
+            if (input_redirect) {
+                int fd = sys_open(input_file, 0, 0);
+                if (fd < 0) {
+                    print("redirect: cannot open ");
+                    printn(input_file);
+                    continue;
+                }
+                saved_stdin = 62;
+                sys_dup2(0, saved_stdin);
+                sys_dup2(fd, 0);
+                sys_close(fd);
             }
-            saved_stdin = 62;
-            sys_dup2(0, saved_stdin);
-            sys_dup2(fd, 0);
-            sys_close(fd);
-        }
 
-        // Fork for background execution
-        if (bg) {
-            int pid = sys_fork();
-            if (pid > 0) {
-                jobs_add(pid, linebuf);
+            // Fork for background execution
+            if (bg) {
+                int pid = sys_fork();
+                if (pid > 0) {
+                    jobs_add(pid, linebuf);
+                    if (saved_stdout >= 0) {
+                        sys_dup2(saved_stdout, 1);
+                        sys_close(saved_stdout);
+                    }
+                    if (saved_stdin >= 0) {
+                        sys_dup2(saved_stdin, 0);
+                        sys_close(saved_stdin);
+                    }
+                    continue;
+                } else if (pid < 0) {
+                    printn("fork failed");
+                    if (saved_stdout >= 0) {
+                        sys_dup2(saved_stdout, 1);
+                        sys_close(saved_stdout);
+                    }
+                    if (saved_stdin >= 0) {
+                        sys_dup2(saved_stdin, 0);
+                        sys_close(saved_stdin);
+                    }
+                    continue;
+                }
                 if (saved_stdout >= 0) {
-                    sys_dup2(saved_stdout, 1);
                     sys_close(saved_stdout);
+                    saved_stdout = -1;
                 }
                 if (saved_stdin >= 0) {
-                    sys_dup2(saved_stdin, 0);
                     sys_close(saved_stdin);
+                    saved_stdin = -1;
                 }
-                continue;
-            } else if (pid < 0) {
-                printn("fork failed");
-                if (saved_stdout >= 0) {
-                    sys_dup2(saved_stdout, 1);
-                    sys_close(saved_stdout);
-                }
-                if (saved_stdin >= 0) {
-                    sys_dup2(saved_stdin, 0);
-                    sys_close(saved_stdin);
-                }
-                continue;
+            }
+
+            dispatch_command();
+
+            // Cleanup: child exits or restore stdout/stdin
+            if (bg) {
+                sys_exit(0);
             }
             if (saved_stdout >= 0) {
+                sys_dup2(saved_stdout, 1);
                 sys_close(saved_stdout);
-                saved_stdout = -1;
             }
             if (saved_stdin >= 0) {
+                sys_dup2(saved_stdin, 0);
                 sys_close(saved_stdin);
-                saved_stdin = -1;
             }
-        }
-
-        dispatch_command();
-
-        // Cleanup: child exits or restore stdout/stdin
-        if (bg) {
-            sys_exit(0);
-        }
-        if (saved_stdout >= 0) {
-            sys_dup2(saved_stdout, 1);
-            sys_close(saved_stdout);
-        }
-        if (saved_stdin >= 0) {
-            sys_dup2(saved_stdin, 0);
-            sys_close(saved_stdin);
         }
     }
 }
