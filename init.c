@@ -3071,7 +3071,16 @@ static void dispatch_command(void) {
             }
         }
     } else if (strcmp_(linebuf, "agent") == 0) {
-        agent_loop();
+        int pid = sys_fork();
+        if (pid == 0) {
+            agent_loop();
+            sys_exit(0);
+        } else if (pid > 0) {
+            int status;
+            sys_wait4(pid, &status, 0, NULL);
+        } else {
+            printn("agent: fork failed");
+        }
     } else if (starts_with(linebuf, "llm ")) {
         char *rest = linebuf + 4;
         while (*rest == ' ') rest++;
