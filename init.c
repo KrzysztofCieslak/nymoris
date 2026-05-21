@@ -2789,6 +2789,8 @@ static void dispatch_command(void) {
 }
 
 static void shell_loop(void) {
+    // Clear screen and move cursor to home
+    print("\x1b[2J\x1b[H");
     printn("");
     printn("========================================");
     printn("  Nymoris Agentic AI Operating System");
@@ -2979,6 +2981,16 @@ void _start(void) {
     // Align stack to 16 bytes for SSE compatibility
     asm volatile("andq $-16, %%rsp" ::: "memory");
 
+    // Mount basic filesystems first so /dev/console exists
+    sys_mkdir("/proc", 0755);
+    sys_mkdir("/sys", 0755);
+    sys_mkdir("/dev", 0755);
+    sys_mkdir("/tmp", 0755);
+    sys_mount("proc", "/proc", "proc", 0, NULL);
+    sys_mount("sysfs", "/sys", "sysfs", 0, NULL);
+    sys_mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
+    sys_mount("tmpfs", "/tmp", "tmpfs", 0, NULL);
+
     // Open /dev/console for stdin/stdout/stderr
     int fd = sys_open("/dev/console", 2, 0); // O_RDWR
     if (fd >= 0) {
@@ -2995,16 +3007,6 @@ void _start(void) {
             sys_close(fd);
         }
     }
-
-    // Mount basic filesystems
-    sys_mkdir("/proc", 0755);
-    sys_mkdir("/sys", 0755);
-    sys_mkdir("/dev", 0755);
-    sys_mkdir("/tmp", 0755);
-    sys_mount("proc", "/proc", "proc", 0, NULL);
-    sys_mount("sysfs", "/sys", "sysfs", 0, NULL);
-    sys_mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
-    sys_mount("tmpfs", "/tmp", "tmpfs", 0, NULL);
 
     printn("[Nymoris] init started");
 

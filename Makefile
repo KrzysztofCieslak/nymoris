@@ -39,7 +39,7 @@ run-gui: build
 		-initrd $(INITRAMFS) \
 		-m 512M \
 		-no-reboot \
-		-append "console=tty0"
+		-append "console=tty0 panic=1 quiet loglevel=0"
 
 clean:
 	rm -rf $(INITRAMFS) initramfs
