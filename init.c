@@ -2403,6 +2403,15 @@ static void run_command(const char *cmd) {
             }
             *bp = '\0';
             sys_execve(binpath, argv, envp);
+            // Try /data/bin/ prefix
+            char datapath[128] = "/data/bin/";
+            bp = datapath + 10;
+            ap = argv[0];
+            while (*ap && bp < datapath + sizeof(datapath) - 1) {
+                *bp++ = *ap++;
+            }
+            *bp = '\0';
+            sys_execve(datapath, argv, envp);
         }
         printn("run: exec failed");
         sys_exit(1);
@@ -2463,7 +2472,7 @@ static void agent_loop(void) {
     agent_load_config();
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], sleep <secs>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
 
     while (1) {
         print("[AGENT] > ");
@@ -2636,6 +2645,7 @@ static void dispatch_command(void) {
         printn("  touch <file>      Create empty file");
         printn("  ping <host>       Ping host");
         printn("  wget <h> <p> <f>  Download file via HTTP");
+        printn("  install <h> <p> <n> Download binary to /data/bin/");
         printn("  http <host> [p]   HTTP GET");
         printn("  sleep <secs>      Sleep");
         printn("  read <var>        Read input into variable");
@@ -3020,6 +3030,42 @@ static void dispatch_command(void) {
             }
         }
         do_http_get(host, path ? path : "/");
+    } else if (starts_with(linebuf, "install ")) {
+        char *rest = linebuf + 8;
+        while (*rest == ' ') rest++;
+        char *host = rest;
+        char *path = NULL;
+        char *name = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                path = &rest[i + 1];
+                break;
+            }
+        }
+        if (path) {
+            for (int i = 0; path[i]; i++) {
+                if (path[i] == ' ') {
+                    path[i] = '\0';
+                    name = &path[i + 1];
+                    break;
+                }
+            }
+        }
+        if (host && path && name) {
+            char outpath[128] = "/data/bin/";
+            char *op = outpath + 10;
+            char *np = name;
+            while (*np && op < outpath + sizeof(outpath) - 1) {
+                *op++ = *np++;
+            }
+            *op = '\0';
+            do_wget(host, path, outpath);
+            sys_chmod(outpath, 0755);
+            printn("install: made executable");
+        } else {
+            printn("Usage: install <host> <path> <name>");
+        }
     } else if (starts_with(linebuf, "sleep ")) {
         int secs = 0;
         char *p = linebuf + 6;
@@ -3309,6 +3355,7 @@ void _start(void) {
     sys_mkdir("/dev", 0755);
     sys_mkdir("/tmp", 0755);
     sys_mkdir("/data", 0755);
+    sys_mkdir("/data/bin", 0755);
     sys_mount("proc", "/proc", "proc", 0, NULL);
     sys_mount("sysfs", "/sys", "sysfs", 0, NULL);
     sys_mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);

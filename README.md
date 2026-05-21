@@ -111,6 +111,17 @@ nymoris/
 4. `init` opens `/dev/console` for stdin/stdout/stderr
 5. Interactive agent shell starts
 
+### Writable Storage
+
+`/tmp` and `/data` are mounted as tmpfs (writable in RAM). Files persist during the session but are lost on reboot.
+
+Use `/data/bin/` for installing external binaries — the shell searches this path when running commands via `run` or directly.
+
+```bash
+install 10.0.2.2 /hello /data/bin/hello
+hello
+```
+
 ## Shell Commands
 
 ### Filesystem
@@ -161,6 +172,7 @@ nymoris/
 | `ping <host>` | Ping host via ICMP |
 | `http <host> [path]` | HTTP GET |
 | `wget <host> <path> <outfile>` | Download file |
+| `install <host> <path> <name>` | Download binary to `/data/bin/` |
 
 ### Environment & Shell
 
