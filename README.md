@@ -39,8 +39,9 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] Startup scripts (`/data/nymoris.rc`, `/nymoris.rc`)
 - [x] Interactive agent loop (`agent` command)
 - [x] AI API integration — `ask` command calls OpenAI-compatible API
-- [x] Configurable API endpoint, model, and Bearer auth
+- [x] Configurable API endpoint, model, Bearer auth, and system prompt
 - [x] **Agent output capture** — auto mode feeds command output back to AI
+- [x] Agent conversation history (16 messages)
 - [x] Minimal JSON parser for API responses
 - [x] Local LLM inference (llm.c + convert.py)
 
@@ -324,6 +325,18 @@ agent
 ask hello
 ```
 
+### Custom System Prompt
+
+Change the agent's behavior with a custom system prompt:
+
+```bash
+export NYMORIS_SYSTEM_PROMPT="You are a security researcher. Use exec nmap, exec ping, and exec cat to analyze the network."
+agent
+ask "scan the local network"
+```
+
+The default prompt instructs the AI to use available tools (run, exec, read, write, http, post) and respond with tool calls only.
+
 ### Using HTTPS APIs (OpenAI, Claude, etc.)
 
 Nymoris has no TLS library. Use the included Python proxy to bridge HTTP → HTTPS:
@@ -424,6 +437,8 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Hexdump command
 - [x] Base64 encode/decode
 - [x] Ctrl+C interrupts long-running commands
+- [x] Custom agent system prompt (NYMORIS_SYSTEM_PROMPT)
+- [x] Expanded agent conversation history (16 messages)
 - [ ] ELF Loader
 
 ### Phase 3: Production

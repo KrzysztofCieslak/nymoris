@@ -2302,7 +2302,7 @@ static void agent_load_config(void) {
 static void run_command(const char *cmd);
 static void write_file(const char *path, const char *content);
 
-#define MAX_AGENT_HISTORY 8
+#define MAX_AGENT_HISTORY 16
 #define AGENT_MSG_LEN 512
 static char agent_roles[MAX_AGENT_HISTORY][16];
 static char agent_msgs[MAX_AGENT_HISTORY][AGENT_MSG_LEN];
@@ -2372,13 +2372,20 @@ static void append_json_string(char *buf, int *pos, int max, const char *s) {
 }
 
 static void ask_ai(const char *prompt) {
-    char body[8192];
+    char body[16384];
     int bl = 0;
     const char *p = "{\"model\":\"";
     while (*p) body[bl++] = *p++;
     int m = 0;
     while (api_model[m]) body[bl++] = api_model[m++];
-    p = "\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path], post <host> <path> <json_body>. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.\"}";
+    p = "\",\"messages\":[{\"role\":\"system\",\"content\":\"";
+    while (*p) body[bl++] = *p++;
+    const char *sys_prompt = env_get("NYMORIS_SYSTEM_PROMPT");
+    if (!sys_prompt || !sys_prompt[0]) {
+        sys_prompt = "You are an AI agent running inside Nymoris OS. Available tools: run <binary>, exec <shell_command>, read <file>, write <file> <content>, http <host> [path], post <host> <path> <json_body>. Use 'exec' for built-in shell commands (ls, cat, ps, etc.). Respond with the tool call only, no explanation.";
+    }
+    append_json_string(body, &bl, sizeof(body) - 1, sys_prompt);
+    p = "\"}";
     while (*p) body[bl++] = *p++;
 
     // Add conversation history
@@ -2790,6 +2797,10 @@ static void agent_loop(void) {
 
     printn("\n[AGENT] AI Agent loop started.");
     printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, config, exec <cmd>, run <cmd>, read <file>, write <file> <data>, http <host> [path], post <host> <path> <body>, sleep <secs>, done");
+    const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
+    if (sp && sp[0]) {
+        printn("[AGENT] Custom system prompt active.");
+    }
 
     while (1) {
         print("[AGENT] > ");
@@ -2851,7 +2862,14 @@ static void agent_loop(void) {
             } else {
                 printn("(not set)");
             }
-            printn("[AGENT] Set via env: NYMORIS_API_KEY, NYMORIS_API_HOST, NYMORIS_API_MODEL, NYMORIS_API_PATH");
+            const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
+            print("  SYSTEM:    ");
+            if (sp && sp[0]) {
+                printn("custom");
+            } else {
+                printn("default");
+            }
+            printn("[AGENT] Set via env: NYMORIS_API_KEY, NYMORIS_API_HOST, NYMORIS_API_MODEL, NYMORIS_API_PATH, NYMORIS_SYSTEM_PROMPT");
         } else if (strcmp_(action, "run") == 0) {
             if (arg) {
                 run_command(arg);
