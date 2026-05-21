@@ -2491,6 +2491,52 @@ static void append_json_string(char *buf, int *pos, int max, const char *s) {
     }
 }
 
+static char *extract_tool_call(char *text) {
+    // Strip markdown code blocks
+    if (starts_with(text, "```")) {
+        char *end = text;
+        while (*end) end++;
+        // Find closing ```
+        for (char *p = text + 3; *p; p++) {
+            if (p[0] == '`' && p[1] == '`' && p[2] == '`') {
+                *p = '\0';
+                text = text + 3;
+                // Skip optional language tag
+                while (*text == ' ' || *text == '\n' || *text == '\r') text++;
+                while (*text && *text != '\n' && *text != '\r') {
+                    if (*text == ' ') { text++; break; }
+                    text++;
+                }
+                while (*text == '\n' || *text == '\r' || *text == ' ') text++;
+                break;
+            }
+        }
+    }
+
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "http ", "post ", "sleep ", "replace ", NULL};
+    char *best = NULL;
+    int best_pos = 4096;
+
+    for (int t = 0; tools[t]; t++) {
+        char *found = text;
+        while (*found) {
+            if (starts_with(found, tools[t])) {
+                int pos = found - text;
+                if (pos < best_pos) {
+                    best_pos = pos;
+                    best = found;
+                }
+                break;
+            }
+            found++;
+        }
+    }
+    return best ? best : text;
+}
+
+static void do_sleep(int secs);
+static void do_replace(const char *path, const char *old, const char *new_);
+
 static void ask_ai(const char *prompt) {
     char body[16384];
     int bl = 0;
@@ -2548,21 +2594,22 @@ static void ask_ai(const char *prompt) {
         agent_history_add("assistant", content);
 
         // Auto-execute if it looks like a tool call
-        if (starts_with(content, "run ")) {
+        char *tc = extract_tool_call(content);
+        if (starts_with(tc, "run ")) {
             printn("[AGENT] Executing: run");
             if (agent_auto_mode) {
                 int pipefd[2];
                 int cap = capture_setup(pipefd);
-                run_command(content + 4);
+                run_command(tc + 4);
                 if (cap == 0) {
                     char out[2048];
                     capture_finish(pipefd, out, sizeof(out));
                     agent_history_add("system", out);
                 }
             } else {
-                run_command(content + 4);
+                run_command(tc + 4);
             }
-        } else if (starts_with(content, "exec ")) {
+        } else if (starts_with(tc, "exec ")) {
             printn("[AGENT] Executing: exec");
             char saved[1024];
             int i = 0;
@@ -2571,7 +2618,7 @@ static void ask_ai(const char *prompt) {
                 i++;
             }
             saved[i] = '\0';
-            char *cmd = content + 5;
+            char *cmd = tc + 5;
             i = 0;
             while (cmd[i] && i < sizeof(linebuf) - 1) {
                 linebuf[i] = cmd[i];
@@ -2598,23 +2645,23 @@ static void ask_ai(const char *prompt) {
             }
             linebuf[i] = '\0';
             linepos = i;
-        } else if (starts_with(content, "read ")) {
+        } else if (starts_with(tc, "read ")) {
             printn("[AGENT] Executing: read");
             if (agent_auto_mode) {
                 int pipefd[2];
                 int cap = capture_setup(pipefd);
-                cat_file(content + 5);
+                cat_file(tc + 5);
                 if (cap == 0) {
                     char out[2048];
                     capture_finish(pipefd, out, sizeof(out));
                     agent_history_add("system", out);
                 }
             } else {
-                cat_file(content + 5);
+                cat_file(tc + 5);
             }
-        } else if (starts_with(content, "write ")) {
+        } else if (starts_with(tc, "write ")) {
             printn("[AGENT] Executing: write");
-            char *wp = content + 6;
+            char *wp = tc + 6;
             char *wpath = wp;
             char *wcontent = NULL;
             for (int i = 0; wp[i]; i++) {
@@ -2630,9 +2677,9 @@ static void ask_ai(const char *prompt) {
                     agent_history_add("system", "File written successfully.");
                 }
             }
-        } else if (starts_with(content, "append ")) {
+        } else if (starts_with(tc, "append ")) {
             printn("[AGENT] Executing: append");
-            char *ap = content + 7;
+            char *ap = tc + 7;
             char *apath = ap;
             char *acontent = NULL;
             for (int i = 0; ap[i]; i++) {
@@ -2648,9 +2695,37 @@ static void ask_ai(const char *prompt) {
                     agent_history_add("system", "File appended successfully.");
                 }
             }
-        } else if (starts_with(content, "post ")) {
+        } else if (starts_with(tc, "replace ")) {
+            printn("[AGENT] Executing: replace");
+            char *rp = tc + 8;
+            char *rpath = rp;
+            char *rold = NULL;
+            char *rnew = NULL;
+            for (int i = 0; rp[i]; i++) {
+                if (rp[i] == ' ') {
+                    rp[i] = '\0';
+                    rold = &rp[i + 1];
+                    break;
+                }
+            }
+            if (rold) {
+                for (int i = 0; rold[i]; i++) {
+                    if (rold[i] == ' ') {
+                        rold[i] = '\0';
+                        rnew = &rold[i + 1];
+                        break;
+                    }
+                }
+            }
+            if (rpath && rold && rnew) {
+                do_replace(rpath, rold, rnew);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "File replaced successfully.");
+                }
+            }
+        } else if (starts_with(tc, "post ")) {
             printn("[AGENT] Executing: post");
-            char *pp = content + 5;
+            char *pp = tc + 5;
             char *phost = pp;
             char *ppath = NULL;
             char *pbody = NULL;
@@ -2681,9 +2756,9 @@ static void ask_ai(const char *prompt) {
                     }
                 }
             }
-        } else if (starts_with(content, "http ")) {
+        } else if (starts_with(tc, "http ")) {
             printn("[AGENT] Executing: http");
-            char *hp = content + 5;
+            char *hp = tc + 5;
             char *hhost = hp;
             char *hpath = NULL;
             for (int i = 0; hp[i]; i++) {
@@ -2704,6 +2779,18 @@ static void ask_ai(const char *prompt) {
                 }
             } else {
                 do_http_get(hhost, hpath ? hpath : "/");
+            }
+        } else if (starts_with(tc, "sleep ")) {
+            printn("[AGENT] Executing: sleep");
+            int secs = 0;
+            char *sp = tc + 6;
+            while (*sp >= '0' && *sp <= '9') {
+                secs = secs * 10 + (*sp - '0');
+                sp++;
+            }
+            do_sleep(secs);
+            if (agent_auto_mode) {
+                agent_history_add("system", "Sleep completed.");
             }
         }
     } else {

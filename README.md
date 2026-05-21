@@ -286,6 +286,7 @@ Inside the `agent` loop:
 | `read <file>` | Read file contents |
 | `write <file> <data>` | Write to file (overwrite) |
 | `append <file> <data>` | Append to file |
+| `replace <file> <old> <new>` | Replace first occurrence in file |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |
