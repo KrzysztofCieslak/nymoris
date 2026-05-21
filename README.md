@@ -295,6 +295,8 @@ Inside the `agent` loop:
 | `cp <src> <dst>` | Copy file |
 | `mv <src> <dst>` | Move file |
 | `chmod <mode> <file>` | Change permissions |
+| `head <file> [n]` | Show first n lines |
+| `tail <file> [n]` | Show last n lines |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |

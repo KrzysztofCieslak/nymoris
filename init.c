@@ -2597,7 +2597,7 @@ static char *extract_tool_call(char *text) {
         }
     }
 
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "http ", "post ", "sleep ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", NULL};
     char *best = NULL;
     int best_pos = 4096;
 
@@ -2619,7 +2619,7 @@ static char *extract_tool_call(char *text) {
 }
 
 static int is_tool_call(const char *text) {
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "http ", "post ", "sleep ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", NULL};
     for (int t = 0; tools[t]; t++) {
         if (starts_with(text, tools[t])) return 1;
     }
@@ -3025,6 +3025,66 @@ static void ask_ai(const char *prompt) {
                 if (agent_auto_mode) {
                     agent_history_add("system", "Permissions changed.");
                 }
+            }
+        } else if (starts_with(tc, "head ")) {
+            printn("[AGENT] Executing: head");
+            char *hp = tc + 5;
+            char *hpath = hp;
+            int nlines = 10;
+            for (int i = 0; hp[i]; i++) {
+                if (hp[i] == ' ') {
+                    hp[i] = '\0';
+                    nlines = 0;
+                    char *np = &hp[i + 1];
+                    while (*np >= '0' && *np <= '9') {
+                        nlines = nlines * 10 + (*np - '0');
+                        np++;
+                    }
+                    break;
+                }
+            }
+            if (nlines <= 0) nlines = 10;
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                head_file(hpath, nlines);
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                head_file(hpath, nlines);
+            }
+        } else if (starts_with(tc, "tail ")) {
+            printn("[AGENT] Executing: tail");
+            char *tp = tc + 5;
+            char *tpath = tp;
+            int nlines = 10;
+            for (int i = 0; tp[i]; i++) {
+                if (tp[i] == ' ') {
+                    tp[i] = '\0';
+                    nlines = 0;
+                    char *np = &tp[i + 1];
+                    while (*np >= '0' && *np <= '9') {
+                        nlines = nlines * 10 + (*np - '0');
+                        np++;
+                    }
+                    break;
+                }
+            }
+            if (nlines <= 0) nlines = 10;
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                tail_file(tpath, nlines);
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                tail_file(tpath, nlines);
             }
         }
     } else {
