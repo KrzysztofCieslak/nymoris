@@ -291,6 +291,10 @@ Inside the `agent` loop:
 | `grep <pattern> <file>` | Search for pattern in file |
 | `mkdir <dir>` | Create directory |
 | `rm <file>` | Remove file |
+| `ls [dir]` | List directory |
+| `cp <src> <dst>` | Copy file |
+| `mv <src> <dst>` | Move file |
+| `chmod <mode> <file>` | Change permissions |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |

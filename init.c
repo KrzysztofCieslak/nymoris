@@ -1599,6 +1599,33 @@ static void do_chmod(const char *path, int mode) {
     }
 }
 
+static void do_cp(const char *src, const char *dst) {
+    int sfd = sys_open(src, 0, 0);
+    if (sfd < 0) {
+        printn("cp: cannot open source");
+        return;
+    }
+    int dfd = sys_open(dst, 0x241, 0644);
+    if (dfd < 0) {
+        printn("cp: cannot create destination");
+        sys_close(sfd);
+        return;
+    }
+    char buf[256];
+    int n;
+    while ((n = sys_read(sfd, buf, sizeof(buf))) > 0) {
+        sys_write(dfd, buf, n);
+    }
+    sys_close(dfd);
+    sys_close(sfd);
+}
+
+static void do_mv(const char *src, const char *dst) {
+    if (sys_rename(src, dst) < 0) {
+        printn("mv: failed");
+    }
+}
+
 static int parse_octal(const char *s) {
     int n = 0;
     while (*s >= '0' && *s <= '7') {
@@ -2513,7 +2540,7 @@ static char *extract_tool_call(char *text) {
         }
     }
 
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "http ", "post ", "sleep ", "replace ", "find ", "grep ", "mkdir ", "rm ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "http ", "post ", "sleep ", NULL};
     char *best = NULL;
     int best_pos = 4096;
 
@@ -2866,6 +2893,72 @@ static void ask_ai(const char *prompt) {
             } else {
                 if (agent_auto_mode) {
                     agent_history_add("system", "File removed.");
+                }
+            }
+        } else if (starts_with(tc, "ls ")) {
+            printn("[AGENT] Executing: ls");
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                ls_dir(tc + 3);
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                ls_dir(tc + 3);
+            }
+        } else if (starts_with(tc, "cp ")) {
+            printn("[AGENT] Executing: cp");
+            char *cp_src = tc + 3;
+            char *cp_dst = NULL;
+            for (int i = 0; cp_src[i]; i++) {
+                if (cp_src[i] == ' ') {
+                    cp_src[i] = '\0';
+                    cp_dst = &cp_src[i + 1];
+                    break;
+                }
+            }
+            if (cp_dst) {
+                do_cp(cp_src, cp_dst);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "File copied.");
+                }
+            }
+        } else if (starts_with(tc, "mv ")) {
+            printn("[AGENT] Executing: mv");
+            char *mv_src = tc + 3;
+            char *mv_dst = NULL;
+            for (int i = 0; mv_src[i]; i++) {
+                if (mv_src[i] == ' ') {
+                    mv_src[i] = '\0';
+                    mv_dst = &mv_src[i + 1];
+                    break;
+                }
+            }
+            if (mv_dst) {
+                do_mv(mv_src, mv_dst);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "File moved.");
+                }
+            }
+        } else if (starts_with(tc, "chmod ")) {
+            printn("[AGENT] Executing: chmod");
+            char *cpath = tc + 6;
+            char *cmode_str = NULL;
+            for (int i = 0; cpath[i]; i++) {
+                if (cpath[i] == ' ') {
+                    cpath[i] = '\0';
+                    cmode_str = &cpath[i + 1];
+                    break;
+                }
+            }
+            if (cmode_str) {
+                int cmode = parse_octal(cmode_str);
+                do_chmod(cpath, cmode);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "Permissions changed.");
                 }
             }
         }
@@ -3936,23 +4029,7 @@ static void dispatch_command(void) {
             }
         }
         if (dst) {
-            int sfd = sys_open(src, 0, 0);
-            if (sfd < 0) {
-                printn("cp: cannot open source");
-            } else {
-                int dfd = sys_open(dst, 0x241, 0644);
-                if (dfd < 0) {
-                    printn("cp: cannot create destination");
-                } else {
-                    char buf[256];
-                    int n;
-                    while ((n = sys_read(sfd, buf, sizeof(buf))) > 0) {
-                        sys_write(dfd, buf, n);
-                    }
-                    sys_close(dfd);
-                }
-                sys_close(sfd);
-            }
+            do_cp(src, dst);
         } else {
             printn("Usage: cp <src> <dst>");
         }
@@ -3967,9 +4044,7 @@ static void dispatch_command(void) {
             }
         }
         if (dst) {
-            if (sys_rename(src, dst) < 0) {
-                printn("mv: failed");
-            }
+            do_mv(src, dst);
         } else {
             printn("Usage: mv <src> <dst>");
         }
