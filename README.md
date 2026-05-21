@@ -271,6 +271,7 @@ write /data/hello "Hello\nWorld\n"
 | Command | Description |
 |---------|-------------|
 | `agent` | Start AI agent loop |
+| `ask <prompt>` | Ask AI (one-shot, calls remote API) |
 | `llm <model> <prompt>` | Run local LLM inference |
 
 ### Agent Loop Commands

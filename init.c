@@ -4480,6 +4480,25 @@ static void dispatch_command(void) {
         } else {
             printn("agent: fork failed");
         }
+    } else if (starts_with(linebuf, "ask ")) {
+        int pid = sys_fork();
+        if (pid == 0) {
+            if (sys_unshare(CLONE_NEWNS | CLONE_NEWPID) == 0) {
+                sys_mount("tmpfs", "/tmp", "tmpfs", 0, NULL);
+                sys_mount("tmpfs", "/data", "tmpfs", 0, NULL);
+                sys_mkdir("/data/bin", 0755);
+            }
+            agent_load_config();
+            agent_load_history("/data/agent.history");
+            ask_ai(linebuf + 4);
+            agent_save_history("/data/agent.history");
+            sys_exit(0);
+        } else if (pid > 0) {
+            int status;
+            sys_wait4(pid, &status, 0, NULL);
+        } else {
+            printn("ask: fork failed");
+        }
     } else if (starts_with(linebuf, "llm ")) {
         char *rest = linebuf + 4;
         while (*rest == ' ') rest++;
