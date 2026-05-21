@@ -2712,7 +2712,12 @@ static void ask_ai(const char *prompt) {
     }
 
     char content[4096];
-    if (json_extract_string(resp, "content", content, sizeof(content))) {
+    int has_content = json_extract_string(resp, "content", content, sizeof(content));
+    if (!has_content) {
+        // Try "text" field (Claude API format)
+        has_content = json_extract_string(resp, "text", content, sizeof(content));
+    }
+    if (has_content) {
         printn("[AGENT] AI response:");
         printn(content);
 
@@ -2726,7 +2731,6 @@ static void ask_ai(const char *prompt) {
         if (starts_with(tc, "run ")) {
             agent_tool_executed = 1;
             printn("[AGENT] Executing: run");
-            agent_tool_executed = 1;
             if (agent_auto_mode) {
                 int pipefd[2];
                 int cap = capture_setup(pipefd);
@@ -3146,6 +3150,10 @@ static void ask_ai(const char *prompt) {
     } else {
         printn("[AGENT] Could not parse AI response");
         printn(resp);
+        if (agent_auto_mode) {
+            agent_history_add("user", prompt);
+            agent_history_add("system", "Error: AI response could not be parsed.");
+        }
     }
 }
 
