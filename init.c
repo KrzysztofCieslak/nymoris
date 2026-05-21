@@ -2956,6 +2956,55 @@ static void do_sort(const char *path) {
     }
 }
 
+static void do_uniq(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("uniq: cannot open file");
+        return;
+    }
+    static char ubuf[65536];
+    static char *lines[1024];
+    int n = sys_read(fd, ubuf, sizeof(ubuf) - 1);
+    sys_close(fd);
+    if (n < 0) {
+        printn("uniq: cannot read file");
+        return;
+    }
+    ubuf[n] = '\0';
+
+    int line_count = 0;
+    lines[0] = ubuf;
+    for (int i = 0; i < n && line_count < 1023; i++) {
+        if (ubuf[i] == '\n') {
+            ubuf[i] = '\0';
+            line_count++;
+            lines[line_count] = ubuf + i + 1;
+        }
+    }
+    if (line_count > 0 && lines[line_count][0] == '\0') {
+        line_count--;
+    }
+
+    char *prev = NULL;
+    for (int i = 0; i <= line_count; i++) {
+        int same = 0;
+        if (prev) {
+            char *a = prev;
+            char *b = lines[i];
+            same = 1;
+            while (*a || *b) {
+                if (*a != *b) { same = 0; break; }
+                a++;
+                b++;
+            }
+        }
+        if (!same) {
+            printn(lines[i]);
+            prev = lines[i];
+        }
+    }
+}
+
 // Minimal tar extractor. Supports regular files and directories.
 // Format: 512-byte header blocks, then file data padded to 512 bytes.
 static int octal_to_int(const char *s, int len) {
@@ -3272,6 +3321,7 @@ static void dispatch_command(void) {
         printn("  grep <p> <file>   Search for pattern");
         printn("  wc <file>         Count lines/words/bytes");
         printn("  sort <file>       Sort lines alphabetically");
+        printn("  uniq <file>       Remove duplicate adjacent lines");
         printn("  mkdir <dir>       Create directory");
         printn("  rmdir <dir>       Remove empty directory");
         printn("  echo <text>       Print text");
@@ -3679,6 +3729,10 @@ static void dispatch_command(void) {
         char *path = linebuf + 5;
         while (*path == ' ') path++;
         do_sort(path);
+    } else if (starts_with(linebuf, "uniq ")) {
+        char *path = linebuf + 5;
+        while (*path == ' ') path++;
+        do_uniq(path);
     } else if (starts_with(linebuf, "mkdir ")) {
         if (sys_mkdir(linebuf + 6, 0755) < 0) {
             printn("mkdir: failed");

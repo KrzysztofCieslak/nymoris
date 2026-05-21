@@ -28,7 +28,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
 - [x] Interactive agent shell with 40+ built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, write, append, replace, sort)
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, write, append, replace, sort, uniq)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
@@ -188,6 +188,7 @@ Lines starting with `#` are comments and ignored.
 | `grep <pattern> <file>` | Search for pattern |
 | `wc <file>` | Count lines/words/bytes |
 | `sort <file>` | Sort lines alphabetically |
+| `uniq <file>` | Remove duplicate adjacent lines |
 | `mkdir <dir>` | Create directory |
 | `rmdir <dir>` | Remove empty directory |
 | `rm <file>` | Remove file |
@@ -460,6 +461,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Write/append commands for file editing
 - [x] Replace command (find/replace in files)
 - [x] Sort command (alphabetical line sort)
+- [x] Uniq command (remove duplicate adjacent lines)
 - [ ] ELF Loader
 
 ### Phase 3: Production
