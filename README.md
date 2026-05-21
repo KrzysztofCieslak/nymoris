@@ -28,7 +28,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
 - [x] Interactive agent shell with 40+ built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, write, append)
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, write, append, replace)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
@@ -195,6 +195,7 @@ Lines starting with `#` are comments and ignored.
 | `touch <file>` | Create empty file |
 | `write <file> <data>` | Write content to file (overwrite) |
 | `append <file> <data>` | Append content to file |
+| `replace <file> <old> <new>` | Replace first occurrence in file |
 | `chmod <mode> <file>` | Change permissions |
 | `stat <file>` | Show file metadata (size, mode, uid, gid, links) |
 | `ln [-s] <target> <link>` | Create hard/symbolic link |
@@ -449,6 +450,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Ln command (hard/symbolic links)
 - [x] Cmp command (compare files)
 - [x] Write/append commands for file editing
+- [x] Replace command (find/replace in files)
 - [ ] ELF Loader
 
 ### Phase 3: Production
