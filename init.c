@@ -2663,7 +2663,7 @@ static int is_tool_call(const char *text) {
 }
 
 static void do_sleep(int secs);
-static void do_replace(const char *path, const char *old, const char *new_);
+static void do_replace(const char *path, const char *old, const char *new_, int global);
 
 static void ask_ai(const char *prompt) {
     char body[16384];
@@ -2900,7 +2900,7 @@ static void ask_ai(const char *prompt) {
                 }
             }
             if (rpath && rold && rnew) {
-                do_replace(rpath, rold, rnew);
+                do_replace(rpath, rold, rnew, 0);
                 if (agent_auto_mode) {
                     agent_history_add("system", "File replaced successfully.");
                 }
@@ -3313,20 +3313,20 @@ static void append_file(const char *path, char *content) {
     printn(path);
 }
 
-static void do_replace(const char *path, const char *old, const char *new_) {
+static void do_replace(const char *path, const char *old, const char *new_, int global) {
     int fd = sys_open(path, 0, 0);
     if (fd < 0) {
         printn("replace: cannot open file");
         return;
     }
     static char rbuf[65536];
+    static char wbuf[65536];
     int n = sys_read(fd, rbuf, sizeof(rbuf) - 1);
     sys_close(fd);
     if (n < 0) {
         printn("replace: cannot read file");
         return;
     }
-    rbuf[n] = '\0';
 
     int oldlen = strlen_(old);
     int newlen = strlen_(new_);
@@ -3335,45 +3335,49 @@ static void do_replace(const char *path, const char *old, const char *new_) {
         return;
     }
 
-    // Find first occurrence
-    char *pos = NULL;
-    for (int i = 0; i <= n - oldlen; i++) {
+    int replaced = 0;
+    int wi = 0;
+    int ri = 0;
+    while (ri <= n - oldlen) {
         int match = 1;
         for (int j = 0; j < oldlen; j++) {
-            if (rbuf[i + j] != old[j]) {
+            if (rbuf[ri + j] != old[j]) {
                 match = 0;
                 break;
             }
         }
         if (match) {
-            pos = rbuf + i;
-            break;
+            if (wi + newlen >= sizeof(wbuf)) {
+                printn("replace: result too large");
+                return;
+            }
+            for (int j = 0; j < newlen; j++) {
+                wbuf[wi++] = new_[j];
+            }
+            ri += oldlen;
+            replaced++;
+            if (!global) {
+                // Copy remaining input and stop
+                while (ri < n && wi < sizeof(wbuf) - 1) {
+                    wbuf[wi++] = rbuf[ri++];
+                }
+                break;
+            }
+        } else {
+            if (wi >= sizeof(wbuf) - 1) {
+                printn("replace: result too large");
+                return;
+            }
+            wbuf[wi++] = rbuf[ri++];
         }
     }
+    while (ri < n && wi < sizeof(wbuf) - 1) {
+        wbuf[wi++] = rbuf[ri++];
+    }
 
-    if (!pos) {
+    if (replaced == 0) {
         printn("replace: pattern not found");
         return;
-    }
-
-    // Build new content: before + new + after
-    int before_len = pos - rbuf;
-    int after_len = n - before_len - oldlen;
-    int total = before_len + newlen + after_len;
-    if (total >= sizeof(rbuf)) {
-        printn("replace: result too large");
-        return;
-    }
-
-    // Shift after part to make room
-    if (newlen != oldlen) {
-        for (int i = after_len - 1; i >= 0; i--) {
-            rbuf[before_len + newlen + i] = rbuf[before_len + oldlen + i];
-        }
-    }
-    // Copy new string
-    for (int i = 0; i < newlen; i++) {
-        rbuf[before_len + i] = new_[i];
     }
 
     fd = sys_open(path, 0x241, 0644);
@@ -3381,9 +3385,9 @@ static void do_replace(const char *path, const char *old, const char *new_) {
         printn("replace: cannot write file");
         return;
     }
-    sys_write(fd, rbuf, total);
+    sys_write(fd, wbuf, wi);
     sys_close(fd);
-    printn("replace: done");
+    print("replace: "); print_int(replaced); printn(" replacement(s) done");
 }
 
 static void do_sort(const char *path) {
@@ -3880,7 +3884,7 @@ static void dispatch_command(void) {
         printn("  touch <file>      Create empty file");
         printn("  write <f> <d>    Write content to file");
         printn("  append <f> <d>   Append content to file");
-        printn("  replace <f> <o> <n> Replace first occurrence in file");
+        printn("  replace [-g] <f> <o> <n> Replace first (or all) occurrence in file");
         printn("  ping <host>       Ping host");
         printn("  wget <h> <p> <f>  Download file via HTTP");
         printn("  install <h> <p> <n> Download binary to /data/bin/");
@@ -4383,6 +4387,12 @@ static void dispatch_command(void) {
     } else if (starts_with(linebuf, "replace ")) {
         char *rest = linebuf + 8;
         while (*rest == ' ') rest++;
+        int global = 0;
+        if (starts_with(rest, "-g ")) {
+            global = 1;
+            rest += 3;
+            while (*rest == ' ') rest++;
+        }
         char *path = rest;
         char *old = NULL;
         char *new_ = NULL;
@@ -4405,9 +4415,9 @@ static void dispatch_command(void) {
         }
         if (new_) {
             while (*new_ == ' ') new_++;
-            do_replace(path, old, new_);
+            do_replace(path, old, new_, global);
         } else {
-            printn("Usage: replace <file> <old> <new>");
+            printn("Usage: replace [-g] <file> <old> <new>");
         }
     } else if (starts_with(linebuf, "ping ")) {
         do_ping(linebuf + 5);

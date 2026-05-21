@@ -197,7 +197,7 @@ Lines starting with `#` are comments and ignored.
 | `touch <file>` | Create empty file |
 | `write <file> <data>` | Write content to file (overwrite) |
 | `append <file> <data>` | Append content to file |
-| `replace <file> <old> <new>` | Replace first occurrence in file |
+| `replace [-g] <file> <old> <new>` | Replace first (or all with -g) occurrence in file |
 | `chmod <mode> <file>` | Change permissions |
 | `stat <file>` | Show file metadata (size, mode, uid, gid, links) |
 | `ln [-s] <target> <link>` | Create hard/symbolic link |
@@ -287,7 +287,7 @@ Inside the `agent` loop:
 | `read <file>` | Read file contents |
 | `write <file> <data>` | Write to file (overwrite) |
 | `append <file> <data>` | Append to file |
-| `replace <file> <old> <new>` | Replace first occurrence in file |
+| `replace [-g] <file> <old> <new>` | Replace first (or all with -g) occurrence in file |
 | `find <dir> <name>` | Find file by name |
 | `grep <pattern> <file>` | Search for pattern in file |
 | `mkdir <dir>` | Create directory |
