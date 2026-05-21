@@ -3520,14 +3520,24 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
     for (int iter = 0; iter < max_iter && !interrupted; iter++) {
         print("\n[AGENT] === Iteration "); print_int(iter + 1); print(" / "); print_int(max_iter); printn(" ===");
 
+        // Build contextual prompt for auto mode
         char prompt[512];
         int p = 0;
-        const char *s = "You are running autonomously on Nymoris OS. Decide what to do next. ";
+        const char *s = "Continue the task. Execute one tool.";
         while (*s) prompt[p++] = *s++;
-        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, http, post, sleep. ";
-        while (*s) prompt[p++] = *s++;
-        s = "Be concise. Execute one tool per response.";
-        while (*s) prompt[p++] = *s++;
+
+        // Include last system message as context if available
+        if (agent_history_count > 0) {
+            int idx = (agent_history_next - 1) % MAX_AGENT_HISTORY;
+            if (strcmp_(agent_roles[idx], "system") == 0 && agent_msgs[idx][0]) {
+                s = " Previous result: ";
+                while (*s) prompt[p++] = *s++;
+                int m = 0;
+                while (agent_msgs[idx][m] && p < sizeof(prompt) - 50) {
+                    prompt[p++] = agent_msgs[idx][m++];
+                }
+            }
+        }
         prompt[p] = '\0';
 
         int prev_count = agent_history_count;
