@@ -169,6 +169,28 @@ static int sys_stat(const char *path, void *buf) {
     return ret;
 }
 
+static int sys_link(const char *oldpath, const char *newpath) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_link), "D"(oldpath), "S"(newpath)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_symlink(const char *target, const char *linkpath) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_symlink), "D"(target), "S"(linkpath)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
 static int sys_mkdir(const char *path, int mode) {
     int ret;
     asm volatile(
@@ -1520,6 +1542,18 @@ static void do_stat(const char *path) {
     print("Links: "); print_int((int)st.st_nlink); printn("");
     print("Blocks: "); print_int((int)st.st_blocks); printn("");
     print("Inode: "); print_int((int)st.st_ino); printn("");
+}
+
+static void do_ln(const char *target, const char *linkpath, int symlink_) {
+    int ret;
+    if (symlink_) {
+        ret = sys_symlink(target, linkpath);
+    } else {
+        ret = sys_link(target, linkpath);
+    }
+    if (ret < 0) {
+        printn("ln: failed");
+    }
 }
 
 static void do_chmod(const char *path, int mode) {
@@ -3067,6 +3101,7 @@ static void dispatch_command(void) {
         printn("  id                Show user/group IDs");
         printn("  chmod <m> <f>    Change file permissions");
         printn("  stat <file>       Show file metadata");
+        printn("  ln [-s] <t> <l>  Create hard/symbolic link");
         printn("  find <d> <n>     Find file by name");
         printn("  source <file>     Execute commands from file");
         printn("  agent             Start AI agent loop");
@@ -3294,6 +3329,30 @@ static void dispatch_command(void) {
         char *path = linebuf + 5;
         while (*path == ' ') path++;
         do_stat(path);
+    } else if (starts_with(linebuf, "ln ")) {
+        char *rest = linebuf + 3;
+        while (*rest == ' ') rest++;
+        int symlink_ = 0;
+        if (starts_with(rest, "-s ")) {
+            symlink_ = 1;
+            rest += 3;
+            while (*rest == ' ') rest++;
+        }
+        char *target = rest;
+        char *linkpath = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                linkpath = &rest[i + 1];
+                break;
+            }
+        }
+        if (linkpath) {
+            while (*linkpath == ' ') linkpath++;
+            do_ln(target, linkpath, symlink_);
+        } else {
+            printn("Usage: ln [-s] <target> <link>");
+        }
     } else if (starts_with(linebuf, "find ")) {
         char *rest = linebuf + 5;
         while (*rest == ' ') rest++;
