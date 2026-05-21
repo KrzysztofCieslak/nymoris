@@ -2618,6 +2618,14 @@ static char *extract_tool_call(char *text) {
     return best ? best : text;
 }
 
+static int is_tool_call(const char *text) {
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "http ", "post ", "sleep ", NULL};
+    for (int t = 0; tools[t]; t++) {
+        if (starts_with(text, tools[t])) return 1;
+    }
+    return 0;
+}
+
 static void do_sleep(int secs);
 static void do_replace(const char *path, const char *old, const char *new_);
 
@@ -3449,10 +3457,15 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
         int prev_count = agent_history_count;
         ask_ai(prompt);
 
-        // Loop detection: check if the last assistant message repeats
+        // Check if AI responded with a tool call
         if (agent_history_count > prev_count) {
             int idx = (agent_history_next - 1) % MAX_AGENT_HISTORY;
             if (strcmp_(agent_roles[idx], "assistant") == 0) {
+                if (!is_tool_call(agent_msgs[idx])) {
+                    printn("[AGENT] AI did not request a tool. Stopping auto mode.");
+                    break;
+                }
+                // Loop detection: check if the last assistant message repeats
                 if (strcmp_(agent_msgs[idx], last_tool) == 0) {
                     repeat_count++;
                     if (repeat_count >= 2) {
