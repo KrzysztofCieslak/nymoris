@@ -34,6 +34,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
 - [x] Environment variables, aliases, command history, job control
 - [x] Semicolon command separators (`cmd1; cmd2; cmd3`)
+- [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
 - [x] Interactive agent loop (`agent` command)
 - [x] AI API integration — `ask` command calls OpenAI-compatible API
 - [x] Configurable API endpoint, model, and Bearer auth
@@ -123,6 +124,29 @@ install 10.0.2.2 /hello /data/bin/hello
 hello
 ```
 
+### Filesystem Persistence
+
+Nymoris automatically detects and mounts persistent storage on boot. It probes common block devices (`/dev/sda1`, `/dev/vda1`, `/dev/hda1`, `/dev/nvme0n1p1`) and tries `ext4`, `ext2`, and `vfat` filesystems, mounting the first working one to `/data`.
+
+If no block device is found, `/data` falls back to tmpfs (RAM-only, lost on reboot).
+
+**Manual mount:**
+```bash
+lsblk                          # List available block devices
+mount /dev/sda1 /data ext4     # Mount a specific device
+umount /data                   # Unmount
+```
+
+**Testing in QEMU with a disk image:**
+```bash
+# Create a disk image
+dd if=/dev/zero of=disk.img bs=1M count=100
+mkfs.ext4 disk.img
+
+# Run QEMU with the disk attached
+make run QEMU_EXTRA="-drive file=disk.img,format=raw,id=disk -device virtio-blk-pci,drive=disk"
+```
+
 ## Shell Commands
 
 ### Filesystem
@@ -156,6 +180,9 @@ hello
 | `uptime` | Show system uptime |
 | `df` | Show disk usage |
 | `mount` | Show mounted filesystems |
+| `mount <dev> <dir> <fstype>` | Mount block device (ext4/ext2/vfat) |
+| `umount <dir>` | Unmount filesystem |
+| `lsblk` | List block devices |
 | `netstat` | Show TCP connections |
 | `dmesg` | Show kernel messages |
 | `uname` | Show system info |
@@ -365,7 +392,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Tar archive extractor
 - [x] Netstat command
 - [x] Semicolon command separators (`cmd1; cmd2`)
-- [ ] File system persistence (ext4/FAT driver)
+- [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
 - [ ] ELF Loader
 
 ### Phase 3: Production

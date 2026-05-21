@@ -35,6 +35,7 @@
 #define SYS_setsockopt 54
 #define SYS_unshare  272
 #define SYS_rt_sigaction 13
+#define SYS_umount2  166
 
 #define SIGINT  2
 #define SIGTERM 15
@@ -138,6 +139,17 @@ static int sys_mount(const char *src, const char *tgt, const char *fstype, unsig
         "syscall"
         : "=a"(ret)
         : "a"(SYS_mount), "D"(src), "S"(tgt), "d"(fstype), "r"(r10_), "r"(r8_)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_umount2(const char *target, int flags) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_umount2), "D"(target), "S"(flags)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -2817,6 +2829,9 @@ static void dispatch_command(void) {
         printn("  date              Show date and time");
         printn("  df                Show disk usage");
         printn("  mount             Show mounted filesystems");
+        printn("  mount <d> <p> <t> Mount block device");
+        printn("  umount <dir>      Unmount filesystem");
+        printn("  lsblk             List block devices");
         printn("  netstat           Show TCP connections");
         printn("  hostname          Show hostname");
         printn("  whoami            Show current user");
@@ -2945,6 +2960,66 @@ static void dispatch_command(void) {
         print_df();
     } else if (strcmp_(linebuf, "mount") == 0) {
         cat_file("/proc/mounts");
+    } else if (starts_with(linebuf, "mount ")) {
+        char *rest = linebuf + 6;
+        while (*rest == ' ') rest++;
+        char *device = rest;
+        char *dir = NULL;
+        char *fstype = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                dir = &rest[i + 1];
+                break;
+            }
+        }
+        if (dir) {
+            while (*dir == ' ') dir++;
+            for (int i = 0; dir[i]; i++) {
+                if (dir[i] == ' ') {
+                    dir[i] = '\0';
+                    fstype = &dir[i + 1];
+                    break;
+                }
+            }
+        }
+        if (fstype) {
+            while (*fstype == ' ') fstype++;
+            // Remove trailing spaces from fstype
+            int ftlen = 0;
+            while (fstype[ftlen]) ftlen++;
+            while (ftlen > 0 && fstype[ftlen - 1] == ' ') ftlen--;
+            fstype[ftlen] = '\0';
+            int ret = sys_mount(device, dir, fstype, 0, NULL);
+            if (ret == 0) {
+                print("mounted ");
+                print(device);
+                print(" on ");
+                printn(dir);
+            } else {
+                print("mount failed: ");
+                print_int(ret);
+                printn("");
+            }
+        } else {
+            printn("Usage: mount <device> <dir> <fstype>");
+        }
+    } else if (strcmp_(linebuf, "lsblk") == 0) {
+        printn("Block devices:");
+        printn("MAJOR MINOR  BLOCKS  NAME");
+        cat_file("/proc/partitions");
+    } else if (starts_with(linebuf, "umount ")) {
+        char *rest = linebuf + 7;
+        while (*rest == ' ') rest++;
+        int ret = sys_umount2(rest, 0);
+        if (ret == 0) {
+            print("umounted ");
+            printn(rest);
+        } else {
+            print("umount failed: ");
+            print_int(ret);
+            printn("");
+        }
     } else if (strcmp_(linebuf, "netstat") == 0) {
         cat_file("/proc/net/tcp");
     } else if (strcmp_(linebuf, "hostname") == 0) {
@@ -3545,6 +3620,35 @@ static void shell_loop(void) {
     }
 }
 
+static void try_automount(void) {
+    // Try to mount persistent storage from common block devices
+    const char *devices[] = {"/dev/sda1", "/dev/vda1", "/dev/hda1", "/dev/nvme0n1p1"};
+    const char *fstypes[] = {"ext4", "ext2", "vfat"};
+
+    for (int d = 0; d < 4; d++) {
+        int fd = sys_open(devices[d], 0, 0);
+        if (fd >= 0) {
+            sys_close(fd);
+            for (int f = 0; f < 3; f++) {
+                // Unmount tmpfs /data first, then mount the block device
+                sys_umount2("/data", 0);
+                int ret = sys_mount(devices[d], "/data", fstypes[f], 0, NULL);
+                if (ret == 0) {
+                    sys_mkdir("/data/bin", 0755);
+                    print("[Nymoris] mounted persistent storage: ");
+                    print(devices[d]);
+                    print(" (");
+                    print(fstypes[f]);
+                    printn(") on /data");
+                    return;
+                }
+            }
+        }
+    }
+    // No block device found, /data stays as tmpfs
+    printn("[Nymoris] no persistent storage found, /data is tmpfs");
+}
+
 void _start(void) {
     // Align stack to 16 bytes for SSE compatibility
     asm volatile("andq $-16, %%rsp" ::: "memory");
@@ -3585,6 +3689,9 @@ void _start(void) {
     signal_ignore(SIGTERM);
 
     printn("[Nymoris] init started");
+
+    // Try to mount persistent storage
+    try_automount();
 
     shell_loop();
 
