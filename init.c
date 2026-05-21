@@ -1372,6 +1372,82 @@ static void source_file(const char *path) {
     }
 }
 
+static const char b64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void do_base64_enc(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("base64: cannot open file");
+        return;
+    }
+    unsigned char buf[48];
+    int n;
+    while ((n = sys_read(fd, (char*)buf, 48)) > 0) {
+        for (int i = 0; i < n; i += 3) {
+            int b[3] = {0, 0, 0};
+            int len = 0;
+            for (int j = 0; j < 3; j++) {
+                if (i + j < n) { b[j] = buf[i + j]; len++; }
+            }
+            char out[4];
+            out[0] = b64_chars[(b[0] >> 2) & 0x3f];
+            out[1] = b64_chars[((b[0] & 0x03) << 4) | ((b[1] >> 4) & 0x0f)];
+            out[2] = len > 1 ? b64_chars[((b[1] & 0x0f) << 2) | ((b[2] >> 6) & 0x03)] : '=';
+            out[3] = len > 2 ? b64_chars[b[2] & 0x3f] : '=';
+            sys_write(1, out, 4);
+        }
+    }
+    sys_close(fd);
+    printn("");
+}
+
+static void do_base64_dec(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("base64: cannot open file");
+        return;
+    }
+    unsigned char inbuf[64];
+    int inpos = 0;
+    int n;
+    while ((n = sys_read(fd, (char*)inbuf + inpos, sizeof(inbuf) - inpos)) > 0) {
+        inpos += n;
+        int outpos = 0;
+        while (outpos + 4 <= inpos) {
+            int b[4] = {-1, -1, -1, -1};
+            for (int j = 0; j < 4; j++) {
+                char c = (char)inbuf[outpos + j];
+                if (c >= 'A' && c <= 'Z') b[j] = c - 'A';
+                else if (c >= 'a' && c <= 'z') b[j] = c - 'a' + 26;
+                else if (c >= '0' && c <= '9') b[j] = c - '0' + 52;
+                else if (c == '+') b[j] = 62;
+                else if (c == '/') b[j] = 63;
+                else if (c == '=') b[j] = -2;
+            }
+            if (b[0] >= 0 && b[1] >= 0) {
+                char out[3];
+                out[0] = (b[0] << 2) | ((b[1] >> 4) & 0x03);
+                sys_write(1, out, 1);
+                if (b[2] >= 0) {
+                    out[1] = ((b[1] & 0x0f) << 4) | ((b[2] >> 2) & 0x0f);
+                    sys_write(1, out + 1, 1);
+                    if (b[3] >= 0) {
+                        out[2] = ((b[2] & 0x03) << 6) | b[3];
+                        sys_write(1, out + 2, 1);
+                    }
+                }
+            }
+            outpos += 4;
+        }
+        // Move remaining bytes to front
+        for (int i = 0; i < inpos - outpos; i++) {
+            inbuf[i] = inbuf[outpos + i];
+        }
+        inpos -= outpos;
+    }
+    sys_close(fd);
+}
+
 static void do_chmod(const char *path, int mode) {
     if (sys_chmod(path, mode) < 0) {
         printn("chmod: failed");
@@ -2845,6 +2921,8 @@ static void dispatch_command(void) {
         printn("  head <file> [n]   Show first n lines");
         printn("  tail <file> [n]   Show last n lines");
         printn("  hexdump <file>    Hex dump file");
+        printn("  base64 <file>     Base64 encode file");
+        printn("  base64 -d <file>  Base64 decode file");
         printn("  grep <p> <file>   Search for pattern");
         printn("  wc <file>         Count lines/words/bytes");
         printn("  mkdir <dir>       Create directory");
@@ -3080,6 +3158,16 @@ static void dispatch_command(void) {
         char *path = linebuf + 8;
         while (*path == ' ') path++;
         do_hexdump(path);
+    } else if (starts_with(linebuf, "base64 ")) {
+        char *rest = linebuf + 7;
+        while (*rest == ' ') rest++;
+        if (starts_with(rest, "-d ")) {
+            char *path = rest + 3;
+            while (*path == ' ') path++;
+            do_base64_dec(path);
+        } else {
+            do_base64_enc(rest);
+        }
     } else if (strcmp_(linebuf, "netstat") == 0) {
         cat_file("/proc/net/tcp");
     } else if (strcmp_(linebuf, "hostname") == 0) {

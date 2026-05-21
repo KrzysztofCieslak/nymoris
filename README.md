@@ -181,6 +181,8 @@ Lines starting with `#` are comments and ignored.
 | `head <file> [n]` | Show first n lines |
 | `tail <file> [n]` | Show last n lines |
 | `hexdump <file>` | Hex dump file contents |
+| `base64 <file>` | Base64 encode file |
+| `base64 -d <file>` | Base64 decode file |
 | `grep <pattern> <file>` | Search for pattern |
 | `wc <file>` | Count lines/words/bytes |
 | `mkdir <dir>` | Create directory |
@@ -419,6 +421,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Filesystem persistence — auto-mount block devices (ext4/ext2/vfat)
 - [x] Startup scripts (`/data/nymoris.rc`)
 - [x] Hexdump command
+- [x] Base64 encode/decode
 - [ ] ELF Loader
 
 ### Phase 3: Production
