@@ -2456,6 +2456,7 @@ static char agent_msgs[MAX_AGENT_HISTORY][AGENT_MSG_LEN];
 static int agent_history_count = 0;
 static int agent_history_next = 0;
 static int agent_auto_mode = 0;
+static int agent_tool_executed = 0;
 
 static void agent_history_add(const char *role, const char *content) {
     int idx = agent_history_next % MAX_AGENT_HISTORY;
@@ -2720,9 +2721,12 @@ static void ask_ai(const char *prompt) {
         agent_history_add("assistant", content);
 
         // Auto-execute if it looks like a tool call
+        agent_tool_executed = 0;
         char *tc = extract_tool_call(content);
         if (starts_with(tc, "run ")) {
+            agent_tool_executed = 1;
             printn("[AGENT] Executing: run");
+            agent_tool_executed = 1;
             if (agent_auto_mode) {
                 int pipefd[2];
                 int cap = capture_setup(pipefd);
@@ -2737,6 +2741,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "exec ")) {
             printn("[AGENT] Executing: exec");
+            agent_tool_executed = 1;
             char saved[1024];
             int i = 0;
             while (linebuf[i] && i < sizeof(saved) - 1) {
@@ -2773,6 +2778,7 @@ static void ask_ai(const char *prompt) {
             linepos = i;
         } else if (starts_with(tc, "read ")) {
             printn("[AGENT] Executing: read");
+            agent_tool_executed = 1;
             if (agent_auto_mode) {
                 int pipefd[2];
                 int cap = capture_setup(pipefd);
@@ -2787,6 +2793,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "write ")) {
             printn("[AGENT] Executing: write");
+            agent_tool_executed = 1;
             char *wp = tc + 6;
             char *wpath = wp;
             char *wcontent = NULL;
@@ -2805,6 +2812,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "append ")) {
             printn("[AGENT] Executing: append");
+            agent_tool_executed = 1;
             char *ap = tc + 7;
             char *apath = ap;
             char *acontent = NULL;
@@ -2823,6 +2831,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "replace ")) {
             printn("[AGENT] Executing: replace");
+            agent_tool_executed = 1;
             char *rp = tc + 8;
             char *rpath = rp;
             char *rold = NULL;
@@ -2851,6 +2860,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "post ")) {
             printn("[AGENT] Executing: post");
+            agent_tool_executed = 1;
             char *pp = tc + 5;
             char *phost = pp;
             char *ppath = NULL;
@@ -2884,6 +2894,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "http ")) {
             printn("[AGENT] Executing: http");
+            agent_tool_executed = 1;
             char *hp = tc + 5;
             char *hhost = hp;
             char *hpath = NULL;
@@ -2908,6 +2919,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "sleep ")) {
             printn("[AGENT] Executing: sleep");
+            agent_tool_executed = 1;
             int secs = 0;
             char *sp = tc + 6;
             while (*sp >= '0' && *sp <= '9') {
@@ -2920,6 +2932,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "find ")) {
             printn("[AGENT] Executing: find");
+            agent_tool_executed = 1;
             char *fp = tc + 5;
             char *fdir = fp;
             char *fname = NULL;
@@ -2946,6 +2959,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "grep ")) {
             printn("[AGENT] Executing: grep");
+            agent_tool_executed = 1;
             char *gp = tc + 5;
             char *gpat = gp;
             char *gpath = NULL;
@@ -2972,6 +2986,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "mkdir ")) {
             printn("[AGENT] Executing: mkdir");
+            agent_tool_executed = 1;
             if (sys_mkdir(tc + 6, 0755) < 0) {
                 printn("[AGENT] mkdir failed");
                 if (agent_auto_mode) {
@@ -2984,6 +2999,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "rm ")) {
             printn("[AGENT] Executing: rm");
+            agent_tool_executed = 1;
             if (sys_unlink(tc + 3) < 0) {
                 printn("[AGENT] rm failed");
                 if (agent_auto_mode) {
@@ -2996,6 +3012,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "ls ")) {
             printn("[AGENT] Executing: ls");
+            agent_tool_executed = 1;
             if (agent_auto_mode) {
                 int pipefd[2];
                 int cap = capture_setup(pipefd);
@@ -3010,6 +3027,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "cp ")) {
             printn("[AGENT] Executing: cp");
+            agent_tool_executed = 1;
             char *cp_src = tc + 3;
             char *cp_dst = NULL;
             for (int i = 0; cp_src[i]; i++) {
@@ -3027,6 +3045,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "mv ")) {
             printn("[AGENT] Executing: mv");
+            agent_tool_executed = 1;
             char *mv_src = tc + 3;
             char *mv_dst = NULL;
             for (int i = 0; mv_src[i]; i++) {
@@ -3044,6 +3063,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "chmod ")) {
             printn("[AGENT] Executing: chmod");
+            agent_tool_executed = 1;
             char *cpath = tc + 6;
             char *cmode_str = NULL;
             for (int i = 0; cpath[i]; i++) {
@@ -3062,6 +3082,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "head ")) {
             printn("[AGENT] Executing: head");
+            agent_tool_executed = 1;
             char *hp = tc + 5;
             char *hpath = hp;
             int nlines = 10;
@@ -3092,6 +3113,7 @@ static void ask_ai(const char *prompt) {
             }
         } else if (starts_with(tc, "tail ")) {
             printn("[AGENT] Executing: tail");
+            agent_tool_executed = 1;
             char *tp = tc + 5;
             char *tpath = tp;
             int nlines = 10;
@@ -3561,15 +3583,16 @@ static void agent_auto_loop(int max_iter, int interval_secs) {
         int prev_count = agent_history_count;
         ask_ai(prompt);
 
-        // Check if AI responded with a tool call
+        // Check if AI executed a tool
+        if (!agent_tool_executed) {
+            printn("[AGENT] AI did not request a tool. Stopping auto mode.");
+            break;
+        }
+
+        // Loop detection: check if the last assistant message repeats
         if (agent_history_count > prev_count) {
             int idx = (agent_history_next - 1) % MAX_AGENT_HISTORY;
             if (strcmp_(agent_roles[idx], "assistant") == 0) {
-                if (!is_tool_call(agent_msgs[idx])) {
-                    printn("[AGENT] AI did not request a tool. Stopping auto mode.");
-                    break;
-                }
-                // Loop detection: check if the last assistant message repeats
                 if (strcmp_(agent_msgs[idx], last_tool) == 0) {
                     repeat_count++;
                     if (repeat_count >= 2) {
