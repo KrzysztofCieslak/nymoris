@@ -33,10 +33,14 @@
 #define SYS_rmdir    84
 #define SYS_syslog   103
 #define SYS_setsockopt 54
+#define SYS_unshare  272
 
 #define SOL_SOCKET 1
 #define SO_RCVTIMEO 20
 #define SO_SNDTIMEO 21
+
+#define CLONE_NEWNS  0x00020000
+#define CLONE_NEWPID 0x20000000
 
 typedef unsigned long size_t;
 typedef long ssize_t;
@@ -292,6 +296,17 @@ static int sys_pipe(int pipefd[2]) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_pipe), "D"(pipefd)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_unshare(int flags) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_unshare), "D"(flags)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -3119,6 +3134,14 @@ static void dispatch_command(void) {
     } else if (strcmp_(linebuf, "agent") == 0) {
         int pid = sys_fork();
         if (pid == 0) {
+            // Isolate agent in its own mount and PID namespace
+            if (sys_unshare(CLONE_NEWNS | CLONE_NEWPID) == 0) {
+                // In the new mount namespace, re-mount /tmp and /data
+                // so agent changes are isolated from the host
+                sys_mount("tmpfs", "/tmp", "tmpfs", 0, NULL);
+                sys_mount("tmpfs", "/data", "tmpfs", 0, NULL);
+                sys_mkdir("/data/bin", 0755);
+            }
             agent_loop();
             sys_exit(0);
         } else if (pid > 0) {

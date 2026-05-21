@@ -307,9 +307,11 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 - [x] Better HTTP client (redirects, chunked encoding, timeouts)
 - [x] Writable `/data` tmpfs mount
 - [x] Agent `post` tool for HTTP POST
+- [x] Agent runs in forked child (crash isolation)
+- [x] Container-style isolation (mount + PID namespaces)
+- [x] Install command + `/data/bin` executable path
 - [ ] File system persistence (ext4/FAT driver)
-- [ ] Multi-process agent runtime
-- [ ] Container-style isolation (namespaces)
+- [ ] ELF Loader
 
 ### Phase 3: Production
 - [ ] Full agent framework support
@@ -322,6 +324,8 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 - Minimal initramfs — only essential binaries
 - No network services listening by default
 - Agent runs as root (intentional for full system control)
+- Agent is isolated in mount + PID namespaces (changes in `/tmp` and `/data` don't affect host)
+- Agent crashes don't panic the system (runs in forked child process)
 - All operations auditable via shell history
 
 ## License
