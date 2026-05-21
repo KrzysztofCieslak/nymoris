@@ -173,6 +173,7 @@ hello
 | `http <host> [path]` | HTTP GET |
 | `wget <host> <path> <outfile>` | Download file |
 | `install <host> <path> <name>` | Download binary to `/data/bin/` |
+| `tar x <file>` | Extract tar archive |
 
 ### Environment & Shell
 
@@ -352,7 +353,7 @@ The custom initramfs approach keeps the system minimal and purpose-built while l
 
 ### Phase 3: Production
 - [ ] Full agent framework support
-- [ ] Package manager
+- [x] Package manager precursor (`install`, `tar x`)
 - [ ] Real hardware deployment
 - [ ] Distributed agent clusters
 

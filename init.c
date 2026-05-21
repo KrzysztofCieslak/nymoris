@@ -2478,6 +2478,108 @@ static void write_file(const char *path, const char *content) {
     printn(path);
 }
 
+// Minimal tar extractor. Supports regular files and directories.
+// Format: 512-byte header blocks, then file data padded to 512 bytes.
+static int octal_to_int(const char *s, int len) {
+    int val = 0;
+    for (int i = 0; i < len; i++) {
+        if (s[i] >= '0' && s[i] <= '7') {
+            val = val * 8 + (s[i] - '0');
+        }
+    }
+    return val;
+}
+
+static void do_tar_extract(const char *tarfile) {
+    int fd = sys_open(tarfile, 0, 0);
+    if (fd < 0) {
+        printn("tar: cannot open archive");
+        return;
+    }
+
+    char header[512];
+    int n;
+    int files = 0;
+
+    while ((n = sys_read(fd, header, 512)) == 512) {
+        // Check for end-of-archive (two zero blocks)
+        int all_zero = 1;
+        for (int i = 0; i < 512; i++) {
+            if (header[i] != 0) { all_zero = 0; break; }
+        }
+        if (all_zero) {
+            // Read second zero block
+            char zero[512];
+            int z = sys_read(fd, zero, 512);
+            if (z == 512) {
+                int all_zero2 = 1;
+                for (int i = 0; i < 512; i++) {
+                    if (zero[i] != 0) { all_zero2 = 0; break; }
+                }
+                if (all_zero2) break;
+            }
+            // Not end of archive, continue
+        }
+
+        // Parse header
+        char name[101];
+        for (int i = 0; i < 100; i++) name[i] = header[i];
+        name[100] = '\0';
+
+        // Trim trailing spaces/nulls from name
+        int name_len = 99;
+        while (name_len >= 0 && (name[name_len] == ' ' || name[name_len] == '\0')) name_len--;
+        name[name_len + 1] = '\0';
+
+        if (name[0] == '\0') continue;
+
+        int size = octal_to_int(header + 124, 12);
+        char typeflag = header[156];
+
+        if (typeflag == '5') {
+            // Directory
+            sys_mkdir(name, 0755);
+            files++;
+        } else if (typeflag == '0' || typeflag == '\0') {
+            // Regular file
+            int outfd = sys_open(name, 0x241, 0644);
+            if (outfd < 0) {
+                printn("tar: cannot create file");
+                // Skip file data
+                int blocks = (size + 511) / 512;
+                for (int b = 0; b < blocks; b++) {
+                    char skip[512];
+                    sys_read(fd, skip, 512);
+                }
+                continue;
+            }
+            int remaining = size;
+            while (remaining > 0) {
+                char buf[512];
+                int to_read = remaining > 512 ? 512 : remaining;
+                int r = sys_read(fd, buf, 512);
+                if (r <= 0) break;
+                sys_write(outfd, buf, to_read);
+                remaining -= to_read;
+            }
+            sys_close(outfd);
+            files++;
+        } else {
+            // Unknown type, skip data
+            int blocks = (size + 511) / 512;
+            for (int b = 0; b < blocks; b++) {
+                char skip[512];
+                sys_read(fd, skip, 512);
+            }
+        }
+    }
+
+    sys_close(fd);
+    print("tar: extracted ");
+    print_int(files);
+    printn(" entries");
+}
+
 static void agent_auto_loop(int max_iter, int interval_secs) {
     if (max_iter <= 0) max_iter = 10;
     if (interval_secs <= 0) interval_secs = 5;
@@ -2689,6 +2791,7 @@ static void dispatch_command(void) {
         printn("  ping <host>       Ping host");
         printn("  wget <h> <p> <f>  Download file via HTTP");
         printn("  install <h> <p> <n> Download binary to /data/bin/");
+        printn("  tar x <file>      Extract tar archive");
         printn("  http <host> [p]   HTTP GET");
         printn("  sleep <secs>      Sleep");
         printn("  read <var>        Read input into variable");
@@ -3109,6 +3212,8 @@ static void dispatch_command(void) {
         } else {
             printn("Usage: install <host> <path> <name>");
         }
+    } else if (starts_with(linebuf, "tar x ")) {
+        do_tar_extract(linebuf + 6);
     } else if (starts_with(linebuf, "sleep ")) {
         int secs = 0;
         char *p = linebuf + 6;
