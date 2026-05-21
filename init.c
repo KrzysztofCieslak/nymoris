@@ -2639,8 +2639,26 @@ static void ask_ai(const char *prompt) {
     p = "\",\"messages\":[{\"role\":\"system\",\"content\":\"";
     while (*p) body[bl++] = *p++;
     const char *sys_prompt = env_get("NYMORIS_SYSTEM_PROMPT");
+    char dynamic_prompt[1024];
     if (!sys_prompt || !sys_prompt[0]) {
-        sys_prompt = "You are an AI agent running inside Nymoris OS. Available tools: run <cmd>, exec <cmd>, read <file>, write <file> <content>, append <file> <content>, replace <file> <old> <new>, find <dir> <name>, grep <pattern> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, http <host> [path], post <host> <path> <body>, sleep <secs>. Use 'exec' for built-in shell commands. Respond with the tool call only, no explanation.";
+        int dp = 0;
+        const char *s = "You are an AI agent running inside Nymoris OS. Current directory: ";
+        while (*s) dynamic_prompt[dp++] = *s++;
+        char cwd[256];
+        if (sys_getcwd(cwd, sizeof(cwd)) >= 0) {
+            int ci = 0;
+            while (cwd[ci] && dp < sizeof(dynamic_prompt) - 2) {
+                dynamic_prompt[dp++] = cwd[ci++];
+            }
+        }
+        dynamic_prompt[dp++] = '.';
+        dynamic_prompt[dp++] = ' ';
+        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep. ";
+        while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
+        s = "Use 'exec' for built-in shell commands. Respond with the tool call only, no explanation.";
+        while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
+        dynamic_prompt[dp] = '\0';
+        sys_prompt = dynamic_prompt;
     }
     append_json_string(body, &bl, sizeof(body) - 1, sys_prompt);
     p = "\"}";
