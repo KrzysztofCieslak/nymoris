@@ -2899,7 +2899,7 @@ static char *extract_tool_call(char *text) {
         }
     }
 
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", "status", "diff ", "which ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", "status", "diff ", "which ", "cut ", "broadcast ", "listen ", NULL};
     char *best = NULL;
     int best_pos = 4096;
 
@@ -2921,7 +2921,7 @@ static char *extract_tool_call(char *text) {
 }
 
 static int is_tool_call(const char *text) {
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", "status", "diff ", "which ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", "status", "diff ", "which ", "cut ", "broadcast ", "listen ", NULL};
     for (int t = 0; tools[t]; t++) {
         if (starts_with(text, tools[t])) return 1;
     }
@@ -2955,7 +2955,7 @@ static void ask_ai(const char *prompt) {
         }
         dynamic_prompt[dp++] = '.';
         dynamic_prompt[dp++] = ' ';
-        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep, chain, status, diff, which. Use 'chain cmd1; cmd2' to run multiple commands. ";
+        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep, chain, status, diff, which, cut, broadcast, listen. Use 'chain cmd1; cmd2' to run multiple commands. ";
         while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
         s = "Use 'exec' for built-in shell commands. Respond with the tool call only, no explanation.";
         while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
@@ -3607,6 +3607,105 @@ static void ask_ai(const char *prompt) {
                 }
             } else {
                 do_which(wp);
+            }
+        } else if (starts_with(tc, "cut ")) {
+            printn("[AGENT] Executing: cut");
+            agent_tool_executed = 1;
+            char *cp = tc + 4;
+            char *cpath = cp;
+            int cfield = 1;
+            for (int i = 0; cp[i]; i++) {
+                if (cp[i] == ' ') {
+                    cp[i] = '\0';
+                    cfield = 0;
+                    char *p = &cp[i + 1];
+                    while (*p >= '0' && *p <= '9') {
+                        cfield = cfield * 10 + (*p - '0');
+                        p++;
+                    }
+                    break;
+                }
+            }
+            if (cfield > 0) {
+                if (agent_auto_mode) {
+                    int pipefd[2];
+                    int cap = capture_setup(pipefd);
+                    do_cut(cpath, cfield);
+                    if (cap == 0) {
+                        char out[4096];
+                        capture_finish(pipefd, out, sizeof(out));
+                        agent_history_add("system", out);
+                    }
+                } else {
+                    do_cut(cpath, cfield);
+                }
+            }
+        } else if (starts_with(tc, "broadcast ")) {
+            printn("[AGENT] Executing: broadcast");
+            agent_tool_executed = 1;
+            char *bp = tc + 10;
+            char *bhost = bp;
+            char *bport_str = NULL;
+            char *bmsg = NULL;
+            for (int i = 0; bp[i]; i++) {
+                if (bp[i] == ' ') {
+                    bp[i] = '\0';
+                    bport_str = &bp[i + 1];
+                    break;
+                }
+            }
+            if (bport_str) {
+                for (int i = 0; bport_str[i]; i++) {
+                    if (bport_str[i] == ' ') {
+                        bport_str[i] = '\0';
+                        bmsg = &bport_str[i + 1];
+                        break;
+                    }
+                }
+            }
+            if (bhost && bport_str && bmsg) {
+                int bport = 0;
+                char *p = bport_str;
+                while (*p >= '0' && *p <= '9') {
+                    bport = bport * 10 + (*p - '0');
+                    p++;
+                }
+                do_broadcast(bhost, bport, bmsg);
+                if (agent_auto_mode) {
+                    agent_history_add("system", "Broadcast message sent.");
+                }
+            }
+        } else if (starts_with(tc, "listen ")) {
+            printn("[AGENT] Executing: listen");
+            agent_tool_executed = 1;
+            char *lp = tc + 7;
+            int lport = 0;
+            while (*lp >= '0' && *lp <= '9') {
+                lport = lport * 10 + (*lp - '0');
+                lp++;
+            }
+            while (*lp == ' ') lp++;
+            int ltimeout = 5;
+            if (*lp >= '0' && *lp <= '9') {
+                ltimeout = 0;
+                while (*lp >= '0' && *lp <= '9') {
+                    ltimeout = ltimeout * 10 + (*lp - '0');
+                    lp++;
+                }
+            }
+            if (lport > 0) {
+                if (agent_auto_mode) {
+                    int pipefd[2];
+                    int cap = capture_setup(pipefd);
+                    do_listen(lport, ltimeout);
+                    if (cap == 0) {
+                        char out[4096];
+                        capture_finish(pipefd, out, sizeof(out));
+                        agent_history_add("system", out);
+                    }
+                } else {
+                    do_listen(lport, ltimeout);
+                }
             }
         }
     } else {
@@ -4333,7 +4432,7 @@ static void agent_loop(void) {
     agent_load_history("/data/agent.history");
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace [-g] <file> <old> <new>, find <dir> <name>, grep [-n] <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, status, diff <f1> <f2>, which <name>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace [-g] <file> <old> <new>, find <dir> <name>, grep [-n] <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, status, diff <f1> <f2>, which <name>, cut <file> <field>, broadcast <host> <port> <msg>, listen <port> [timeout], done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");

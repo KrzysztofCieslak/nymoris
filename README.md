@@ -331,6 +331,9 @@ Inside the `agent` loop:
 | `status` | Show system status (uptime, memory, disk) |
 | `diff <file1> <file2>` | Show line-by-line differences |
 | `which <name>` | Find executable in `/data/bin` |
+| `cut <file> <field>` | Extract field from lines (whitespace delimited) |
+| `broadcast <host> <port> <msg>` | UDP broadcast message |
+| `listen <port> [timeout]` | Listen for UDP messages |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |
@@ -525,7 +528,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [ ] ELF Loader
 
 ### Phase 3: Production
-- [x] Full agent framework support (package manager, 25+ agent tools)
+- [x] Full agent framework support (package manager, 28+ agent tools)
 - [x] Package manager precursor (`install`, `tar x`)
 - [x] Real hardware deployment scripts (ISO, GRUB, PXE)
 - [x] Distributed agent clusters (UDP broadcast/listen primitives)
