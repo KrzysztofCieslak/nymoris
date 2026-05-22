@@ -27,13 +27,14 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 ## Current Status
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
-- [x] Interactive agent shell with 40+ built-in commands
+- [x] Interactive agent shell with 45+ built-in commands
 - [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, diff, write, append, replace, sort, uniq)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] Package manager (`pkg install/list/remove`)
 - [x] Grep with line numbers (`grep -n`)
 - [x] Time command execution
+- [x] Repeat and watch commands for automation
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
 - [x] Ctrl+C interrupts long-running commands (sleep, agent, background jobs)
 - [x] Environment variables, aliases, command history, job control
@@ -279,6 +280,8 @@ bin: tool1,tool2
 | `history` | Show command history |
 | `sleep <secs>` | Sleep |
 | `time <cmd>` | Time command execution |
+| `repeat <n> <cmd>` | Repeat command n times |
+| `watch [interval] <cmd>` | Repeat command every interval seconds |
 | `echo <text>` | Print text |
 | `seq [start] [end] [step]` | Print number sequence |
 | `source <file>` | Execute commands from file |
@@ -510,6 +513,9 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Diff command (line-by-line comparison)
 - [x] Which command (find executables)
 - [x] Pkg package manager (install/list/remove)
+- [x] Grep with line numbers (`grep -n`)
+- [x] Time command execution
+- [x] Repeat and watch commands
 - [ ] ELF Loader
 
 ### Phase 3: Production

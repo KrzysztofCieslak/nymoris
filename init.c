@@ -4386,6 +4386,8 @@ static void dispatch_command(void) {
         printn("  http <host> [p]   HTTP GET");
         printn("  sleep <secs>      Sleep");
         printn("  time <cmd>        Time command execution");
+        printn("  repeat <n> <cmd>  Repeat command n times");
+        printn("  watch [i] <cmd>   Repeat command every i seconds (default 2)");
         printn("  read <var>        Read input into variable");
         printn("  seq [a] [b] [s]   Print number sequence");
         printn("  ps                List processes");
@@ -5073,6 +5075,84 @@ static void dispatch_command(void) {
             p++;
         }
         do_sleep(secs);
+    } else if (starts_with(linebuf, "repeat ")) {
+        char *rest = linebuf + 7;
+        while (*rest == ' ') rest++;
+        int count = 0;
+        while (*rest >= '0' && *rest <= '9') {
+            count = count * 10 + (*rest - '0');
+            rest++;
+        }
+        while (*rest == ' ') rest++;
+        if (count > 0 && *rest) {
+            char saved[512];
+            int si = 0;
+            while (linebuf[si] && si < (int)sizeof(saved) - 1) {
+                saved[si] = linebuf[si];
+                si++;
+            }
+            saved[si] = '\0';
+            for (int i = 0; i < count && !interrupted; i++) {
+                int j = 0;
+                while (rest[j] && j < (int)sizeof(linebuf) - 1) {
+                    linebuf[j] = rest[j];
+                    j++;
+                }
+                linebuf[j] = '\0';
+                linepos = j;
+                dispatch_command();
+            }
+            si = 0;
+            while (saved[si]) {
+                linebuf[si] = saved[si];
+                si++;
+            }
+            linebuf[si] = '\0';
+            linepos = si;
+        } else {
+            printn("Usage: repeat <n> <cmd>");
+        }
+    } else if (starts_with(linebuf, "watch ")) {
+        char *rest = linebuf + 6;
+        while (*rest == ' ') rest++;
+        int interval = 2;
+        if (*rest >= '0' && *rest <= '9') {
+            interval = 0;
+            while (*rest >= '0' && *rest <= '9') {
+                interval = interval * 10 + (*rest - '0');
+                rest++;
+            }
+            while (*rest == ' ') rest++;
+        }
+        if (*rest) {
+            char saved[512];
+            int si = 0;
+            while (linebuf[si] && si < (int)sizeof(saved) - 1) {
+                saved[si] = linebuf[si];
+                si++;
+            }
+            saved[si] = '\0';
+            while (!interrupted) {
+                int j = 0;
+                while (rest[j] && j < (int)sizeof(linebuf) - 1) {
+                    linebuf[j] = rest[j];
+                    j++;
+                }
+                linebuf[j] = '\0';
+                linepos = j;
+                dispatch_command();
+                do_sleep(interval);
+            }
+            si = 0;
+            while (saved[si]) {
+                linebuf[si] = saved[si];
+                si++;
+            }
+            linebuf[si] = '\0';
+            linepos = si;
+        } else {
+            printn("Usage: watch [interval] <cmd>");
+        }
     } else if (starts_with(linebuf, "read ")) {
         char varname[64];
         char *p = linebuf + 5;
