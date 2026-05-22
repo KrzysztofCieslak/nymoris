@@ -27,10 +27,11 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 ## Current Status
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
-- [x] Interactive agent shell with 45+ built-in commands
+- [x] Interactive agent shell with 50+ built-in commands
 - [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, diff, write, append, replace, sort, uniq)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
+- [x] UDP broadcast/listen for distributed agent communication
 - [x] Package manager (`pkg install/list/remove`)
 - [x] Grep with line numbers (`grep -n`)
 - [x] Time command execution
@@ -249,6 +250,8 @@ write /data/hello "Hello\nWorld\n"
 |---------|-------------|
 | `ping <host>` | Ping host via ICMP |
 | `http <host> [path]` | HTTP GET |
+| `broadcast <host> <port> <msg>` | UDP broadcast message |
+| `listen <port> [timeout]` | Listen for UDP messages |
 | `wget <host> <path> <outfile>` | Download file |
 | `install <host> <path> <name>` | Download binary to `/data/bin/` |
 | `tar x <file>` | Extract tar archive |
@@ -516,13 +519,14 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Grep with line numbers (`grep -n`)
 - [x] Time command execution
 - [x] Repeat and watch commands
+- [x] UDP broadcast/listen for agent communication
 - [ ] ELF Loader
 
 ### Phase 3: Production
-- [x] Full agent framework support (package manager, 23+ agent tools)
+- [x] Full agent framework support (package manager, 25+ agent tools)
 - [x] Package manager precursor (`install`, `tar x`)
 - [x] Real hardware deployment scripts (ISO, GRUB, PXE)
-- [ ] Distributed agent clusters
+- [x] Distributed agent clusters (UDP broadcast/listen primitives)
 
 ## Security
 

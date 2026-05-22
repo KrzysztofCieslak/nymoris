@@ -32,6 +32,7 @@
 #define SYS_chdir    80
 #define SYS_rmdir    84
 #define SYS_syslog   103
+#define SYS_bind     49
 #define SYS_setsockopt 54
 #define SYS_unshare  272
 #define SYS_rt_sigaction 13
@@ -48,6 +49,7 @@
 #define SOL_SOCKET 1
 #define SO_RCVTIMEO 20
 #define SO_SNDTIMEO 21
+#define SO_BROADCAST 6
 
 #define CLONE_NEWNS  0x00020000
 #define CLONE_NEWPID 0x20000000
@@ -230,6 +232,17 @@ static int sys_connect(int fd, const void *addr, int len) {
         "syscall"
         : "=a"(ret)
         : "a"(SYS_connect), "D"(fd), "S"(addr), "d"(len)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static int sys_bind(int fd, const void *addr, int len) {
+    int ret;
+    asm volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_bind), "D"(fd), "S"(addr), "d"(len)
         : "rcx", "r11", "memory"
     );
     return ret;
@@ -2273,6 +2286,107 @@ static void do_http_get(const char *host, const char *path) {
         return;
     }
     printn("http: too many redirects");
+}
+
+static void do_broadcast(const char *host, int port, const char *message) {
+    uint32_t ip = dns_resolve(host);
+    if (ip == 0) {
+        printn("broadcast: cannot resolve host");
+        return;
+    }
+
+    int fd = sys_socket(2, 2, 0); // AF_INET, SOCK_DGRAM, IPPROTO_UDP
+    if (fd < 0) {
+        printn("broadcast: socket failed");
+        return;
+    }
+
+    int opt = 1;
+    sys_setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
+
+    uint16_t port_be = ((port & 0xFF) << 8) | ((port >> 8) & 0xFF);
+    struct {
+        uint16_t family;
+        uint16_t port;
+        uint32_t addr;
+        char pad[8];
+    } sa = {2, port_be, ip, {0}};
+
+    int msg_len = 0;
+    while (message[msg_len]) msg_len++;
+
+    int sent = sys_sendto(fd, message, msg_len, 0, &sa, sizeof(sa));
+    sys_close(fd);
+
+    if (sent < 0) {
+        printn("broadcast: failed");
+    } else {
+        print("broadcast: sent ");
+        print_int(sent);
+        printn(" bytes");
+    }
+}
+
+static void do_listen(int port, int timeout_secs) {
+    int fd = sys_socket(2, 2, 0); // AF_INET, SOCK_DGRAM, IPPROTO_UDP
+    if (fd < 0) {
+        printn("listen: socket failed");
+        return;
+    }
+
+    uint16_t port_be = ((port & 0xFF) << 8) | ((port >> 8) & 0xFF);
+    struct {
+        uint16_t family;
+        uint16_t port;
+        uint32_t addr;
+        char pad[8];
+    } sa = {2, port_be, 0, {0}};
+
+    if (sys_bind(fd, &sa, sizeof(sa)) < 0) {
+        printn("listen: bind failed");
+        sys_close(fd);
+        return;
+    }
+
+    http_set_timeout(fd, timeout_secs);
+
+    print("[listen] waiting on port ");
+    print_int(port);
+    printn("... (Ctrl+C to stop)");
+
+    char buf[1024];
+    struct {
+        uint16_t family;
+        uint16_t port;
+        uint32_t addr;
+        char pad[8];
+    } from;
+    int from_len = sizeof(from);
+
+    while (!interrupted) {
+        int n = sys_recvfrom(fd, buf, sizeof(buf) - 1, 0, &from, &from_len);
+        if (n < 0) {
+            if (interrupted) break;
+            // Timeout - continue listening
+            continue;
+        }
+        buf[n] = '\0';
+
+        // Print sender IP
+        unsigned char *ip_bytes = (unsigned char *)&from.addr;
+        print("[listen] from ");
+        print_int(ip_bytes[0]); print(".");
+        print_int(ip_bytes[1]); print(".");
+        print_int(ip_bytes[2]); print(".");
+        print_int(ip_bytes[3]); print(":");
+        uint16_t from_port = ((from.port & 0xFF) << 8) | ((from.port >> 8) & 0xFF);
+        print_int(from_port);
+        print(": ");
+        printn(buf);
+    }
+
+    sys_close(fd);
+    printn("[listen] stopped");
 }
 
 static void do_wget(const char *host, const char *path, const char *outfile) {
@@ -4390,6 +4504,8 @@ static void dispatch_command(void) {
         printn("  pkg remove <n>    Remove installed package");
         printn("  tar x <file>      Extract tar archive");
         printn("  http <host> [p]   HTTP GET");
+        printn("  broadcast <h> <p> <msg> UDP broadcast message");
+        printn("  listen <port> [t] Listen for UDP messages (timeout seconds)");
         printn("  sleep <secs>      Sleep");
         printn("  time <cmd>        Time command execution");
         printn("  repeat <n> <cmd>  Repeat command n times");
@@ -4995,6 +5111,61 @@ static void dispatch_command(void) {
             }
         }
         do_http_get(host, path ? path : "/");
+    } else if (starts_with(linebuf, "broadcast ")) {
+        char *rest = linebuf + 10;
+        while (*rest == ' ') rest++;
+        char *host = rest;
+        char *port_str = NULL;
+        char *message = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                port_str = &rest[i + 1];
+                break;
+            }
+        }
+        if (port_str) {
+            for (int i = 0; port_str[i]; i++) {
+                if (port_str[i] == ' ') {
+                    port_str[i] = '\0';
+                    message = &port_str[i + 1];
+                    break;
+                }
+            }
+        }
+        if (host && port_str && message) {
+            int port = 0;
+            char *p = port_str;
+            while (*p >= '0' && *p <= '9') {
+                port = port * 10 + (*p - '0');
+                p++;
+            }
+            do_broadcast(host, port, message);
+        } else {
+            printn("Usage: broadcast <host> <port> <message>");
+        }
+    } else if (starts_with(linebuf, "listen ")) {
+        char *rest = linebuf + 7;
+        while (*rest == ' ') rest++;
+        int port = 0;
+        while (*rest >= '0' && *rest <= '9') {
+            port = port * 10 + (*rest - '0');
+            rest++;
+        }
+        while (*rest == ' ') rest++;
+        int timeout = 30;
+        if (*rest >= '0' && *rest <= '9') {
+            timeout = 0;
+            while (*rest >= '0' && *rest <= '9') {
+                timeout = timeout * 10 + (*rest - '0');
+                rest++;
+            }
+        }
+        if (port > 0) {
+            do_listen(port, timeout);
+        } else {
+            printn("Usage: listen <port> [timeout]");
+        }
     } else if (starts_with(linebuf, "install ")) {
         char *rest = linebuf + 8;
         while (*rest == ' ') rest++;
