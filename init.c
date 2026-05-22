@@ -2991,6 +2991,12 @@ static void ask_ai(const char *prompt) {
             printn("[AGENT] Executing: replace");
             agent_tool_executed = 1;
             char *rp = tc + 8;
+            int rglobal = 0;
+            if (starts_with(rp, "-g ")) {
+                rglobal = 1;
+                rp += 3;
+                while (*rp == ' ') rp++;
+            }
             char *rpath = rp;
             char *rold = NULL;
             char *rnew = NULL;
@@ -3011,7 +3017,7 @@ static void ask_ai(const char *prompt) {
                 }
             }
             if (rpath && rold && rnew) {
-                do_replace(rpath, rold, rnew, 0);
+                do_replace(rpath, rold, rnew, rglobal);
                 if (agent_auto_mode) {
                     agent_history_add("system", "File replaced successfully.");
                 }
@@ -4163,7 +4169,7 @@ static void agent_loop(void) {
     agent_load_history("/data/agent.history");
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, status, diff <f1> <f2>, which <name>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace [-g] <file> <old> <new>, find <dir> <name>, grep [-n] <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, status, diff <f1> <f2>, which <name>, done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");
