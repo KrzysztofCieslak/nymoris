@@ -1087,7 +1087,7 @@ static void do_clear(void) {
     print("\x1b[2J\x1b[H");
 }
 
-static void grep_file(const char *pattern, const char *path) {
+static void grep_file(const char *pattern, const char *path, int show_lines) {
     int fd = sys_open(path, 0, 0);
     if (fd < 0) {
         printn("grep: cannot open file");
@@ -1098,6 +1098,7 @@ static void grep_file(const char *pattern, const char *path) {
     char line[256];
     int line_pos = 0;
     int pat_len = 0;
+    int line_num = 1;
     while (pattern[pat_len]) pat_len++;
 
     while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
@@ -1114,9 +1115,14 @@ static void grep_file(const char *pattern, const char *path) {
                     if (match) found = 1;
                 }
                 if (found) {
+                    if (show_lines) {
+                        print_int(line_num);
+                        print(":");
+                    }
                     printn(line);
                 }
                 line_pos = 0;
+                line_num++;
             } else if (line_pos < sizeof(line) - 1) {
                 line[line_pos++] = buf[i];
             }
@@ -3113,6 +3119,12 @@ static void ask_ai(const char *prompt) {
             printn("[AGENT] Executing: grep");
             agent_tool_executed = 1;
             char *gp = tc + 5;
+            int gshow_lines = 0;
+            if (starts_with(gp, "-n ")) {
+                gshow_lines = 1;
+                gp += 3;
+                while (*gp == ' ') gp++;
+            }
             char *gpat = gp;
             char *gpath = NULL;
             for (int i = 0; gp[i]; i++) {
@@ -3126,14 +3138,14 @@ static void ask_ai(const char *prompt) {
                 if (agent_auto_mode) {
                     int pipefd[2];
                     int cap = capture_setup(pipefd);
-                    grep_file(gpat, gpath);
+                    grep_file(gpat, gpath, gshow_lines);
                     if (cap == 0) {
                         char out[4096];
                         capture_finish(pipefd, out, sizeof(out));
                         agent_history_add("system", out);
                     }
                 } else {
-                    grep_file(gpat, gpath);
+                    grep_file(gpat, gpath, gshow_lines);
                 }
             }
         } else if (starts_with(tc, "mkdir ")) {
@@ -4348,7 +4360,7 @@ static void dispatch_command(void) {
         printn("  hexdump <file>    Hex dump file");
         printn("  base64 <file>     Base64 encode file");
         printn("  base64 -d <file>  Base64 decode file");
-        printn("  grep <p> <file>   Search for pattern");
+        printn("  grep [-n] <p> <file> Search for pattern (with line numbers)");
         printn("  wc <file>         Count lines/words/bytes");
         printn("  sort <file>       Sort lines alphabetically");
         printn("  uniq <file>       Remove duplicate adjacent lines");
@@ -4373,6 +4385,7 @@ static void dispatch_command(void) {
         printn("  tar x <file>      Extract tar archive");
         printn("  http <host> [p]   HTTP GET");
         printn("  sleep <secs>      Sleep");
+        printn("  time <cmd>        Time command execution");
         printn("  read <var>        Read input into variable");
         printn("  seq [a] [b] [s]   Print number sequence");
         printn("  ps                List processes");
@@ -4766,6 +4779,12 @@ static void dispatch_command(void) {
     } else if (starts_with(linebuf, "grep ")) {
         char *rest = linebuf + 5;
         while (*rest == ' ') rest++;
+        int show_lines = 0;
+        if (starts_with(rest, "-n ")) {
+            show_lines = 1;
+            rest += 3;
+            while (*rest == ' ') rest++;
+        }
         char *pattern = rest;
         char *path = NULL;
         for (int i = 0; rest[i]; i++) {
@@ -4776,9 +4795,10 @@ static void dispatch_command(void) {
             }
         }
         if (path) {
-            grep_file(pattern, path);
+            while (*path == ' ') path++;
+            grep_file(pattern, path, show_lines);
         } else {
-            printn("Usage: grep <pattern> <file>");
+            printn("Usage: grep [-n] <pattern> <file>");
         }
     } else if (starts_with(linebuf, "wc ")) {
         wc_file(linebuf + 3);
@@ -5253,6 +5273,21 @@ static void shell_loop(void) {
             linebuf[i] = '\0';
             linepos = i;
 
+            // Handle 'time ' prefix
+            int do_timing = 0;
+            struct { long sec; long usec; } tv_start, tv_end;
+            if (starts_with(linebuf, "time ")) {
+                do_timing = 1;
+                sys_gettimeofday(&tv_start, NULL);
+                int j = 0;
+                while (linebuf[j + 5]) {
+                    linebuf[j] = linebuf[j + 5];
+                    j++;
+                }
+                linebuf[j] = '\0';
+                linepos = j;
+            }
+
             // Parse background '&', output redirection '>', input redirection '<'
             int bg = 0;
             char redirect_file[64];
@@ -5378,6 +5413,19 @@ static void shell_loop(void) {
             }
 
             dispatch_command();
+
+            if (do_timing) {
+                sys_gettimeofday(&tv_end, NULL);
+                long elapsed = (tv_end.sec - tv_start.sec) * 1000000 + (tv_end.usec - tv_start.usec);
+                print("time: ");
+                print_int((int)(elapsed / 1000000));
+                print(".");
+                int frac = (int)((elapsed % 1000000) / 1000);
+                if (frac < 100) print("0");
+                if (frac < 10) print("0");
+                print_int(frac);
+                printn("s");
+            }
 
             // Cleanup: child exits or restore stdout/stdin
             if (bg) {

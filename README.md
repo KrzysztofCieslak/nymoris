@@ -32,6 +32,8 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] Package manager (`pkg install/list/remove`)
+- [x] Grep with line numbers (`grep -n`)
+- [x] Time command execution
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
 - [x] Ctrl+C interrupts long-running commands (sleep, agent, background jobs)
 - [x] Environment variables, aliases, command history, job control
@@ -186,7 +188,7 @@ Lines starting with `#` are comments and ignored.
 | `hexdump <file>` | Hex dump file contents |
 | `base64 <file>` | Base64 encode file |
 | `base64 -d <file>` | Base64 decode file |
-| `grep <pattern> <file>` | Search for pattern |
+| `grep [-n] <pattern> <file>` | Search for pattern (with line numbers) |
 | `wc <file>` | Count lines/words/bytes |
 | `sort <file>` | Sort lines alphabetically |
 | `uniq <file>` | Remove duplicate adjacent lines |
@@ -276,6 +278,7 @@ bin: tool1,tool2
 | `unalias <name>` | Remove alias |
 | `history` | Show command history |
 | `sleep <secs>` | Sleep |
+| `time <cmd>` | Time command execution |
 | `echo <text>` | Print text |
 | `seq [start] [end] [step]` | Print number sequence |
 | `source <file>` | Execute commands from file |
