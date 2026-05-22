@@ -1294,6 +1294,20 @@ static void print_df(void) {
     print("Free:  "); print_int((int)(free / 1024)); printn(" MB");
 }
 
+static void do_status(void) {
+    printn("=== System Status ===");
+    print_uptime();
+    printn("");
+    print_free();
+    printn("");
+    print_df();
+    char cwd[256];
+    if (sys_getcwd(cwd, sizeof(cwd)) >= 0) {
+        print("\nCWD: "); printn(cwd);
+    }
+    printn("===================");
+}
+
 static void print_dmesg(void) {
     char buf[8192];
     int n = sys_syslog(3, buf, sizeof(buf) - 1);
@@ -1593,6 +1607,70 @@ static void do_cmp(const char *path1, const char *path2) {
     printn("cmp: files are identical");
 }
 
+static void do_diff(const char *path1, const char *path2) {
+    int fd1 = sys_open(path1, 0, 0);
+    int fd2 = sys_open(path2, 0, 0);
+    if (fd1 < 0) { printn("diff: cannot open first file"); if (fd2 >= 0) sys_close(fd2); return; }
+    if (fd2 < 0) { printn("diff: cannot open second file"); sys_close(fd1); return; }
+
+    char buf1[1024], buf2[1024];
+    int pos1 = 0, len1 = 0, pos2 = 0, len2 = 0;
+    int line_num = 1;
+    int diff_found = 0;
+
+    while (1) {
+        char line1[512];
+        int i1 = 0;
+        int eof1 = 0;
+        while (1) {
+            if (pos1 >= len1) {
+                len1 = sys_read(fd1, buf1, sizeof(buf1));
+                pos1 = 0;
+                if (len1 <= 0) { eof1 = 1; break; }
+            }
+            char c = buf1[pos1++];
+            if (c == '\n') break;
+            if (i1 < (int)sizeof(line1) - 1) line1[i1++] = c;
+        }
+        line1[i1] = '\0';
+
+        char line2[512];
+        int i2 = 0;
+        int eof2 = 0;
+        while (1) {
+            if (pos2 >= len2) {
+                len2 = sys_read(fd2, buf2, sizeof(buf2));
+                pos2 = 0;
+                if (len2 <= 0) { eof2 = 1; break; }
+            }
+            char c = buf2[pos2++];
+            if (c == '\n') break;
+            if (i2 < (int)sizeof(line2) - 1) line2[i2++] = c;
+        }
+        line2[i2] = '\0';
+
+        if (eof1 && eof2) break;
+
+        if (eof1 != eof2 || strcmp_(line1, line2) != 0) {
+            diff_found = 1;
+            print("--- "); print(path1); print(" line "); print_int(line_num); printn("");
+            if (!eof1) { print("< "); printn(line1); }
+            else { printn("< (EOF)"); }
+            print("+++ "); print(path2); print(" line "); print_int(line_num); printn("");
+            if (!eof2) { print("> "); printn(line2); }
+            else { printn("> (EOF)"); }
+            printn("");
+        }
+        line_num++;
+    }
+
+    sys_close(fd1);
+    sys_close(fd2);
+    if (!diff_found) {
+        printn("diff: files are identical");
+    }
+}
+
 static void do_chmod(const char *path, int mode) {
     if (sys_chmod(path, mode) < 0) {
         printn("chmod: failed");
@@ -1682,6 +1760,24 @@ static void find_file(const char *dir, const char *name) {
         }
     }
     sys_close(fd);
+}
+
+static void do_which(const char *name) {
+    char path[128] = "/data/bin/";
+    int i = 10;
+    const char *p = name;
+    while (*p && i < (int)sizeof(path) - 1) path[i++] = *p++;
+    path[i] = '\0';
+
+    int fd = sys_open(path, 0, 0);
+    if (fd >= 0) {
+        sys_close(fd);
+        printn(path);
+    } else {
+        print("which: no ");
+        print(name);
+        printn(" in /data/bin");
+    }
 }
 
 static int is_numeric(const char *s) {
@@ -2633,7 +2729,7 @@ static char *extract_tool_call(char *text) {
         }
     }
 
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", "status", "diff ", "which ", NULL};
     char *best = NULL;
     int best_pos = 4096;
 
@@ -2655,7 +2751,7 @@ static char *extract_tool_call(char *text) {
 }
 
 static int is_tool_call(const char *text) {
-    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", NULL};
+    const char *tools[] = {"run ", "exec ", "read ", "write ", "append ", "replace ", "find ", "grep ", "mkdir ", "rm ", "ls ", "cp ", "mv ", "chmod ", "head ", "tail ", "http ", "post ", "sleep ", "chain ", "status", "diff ", "which ", NULL};
     for (int t = 0; tools[t]; t++) {
         if (starts_with(text, tools[t])) return 1;
     }
@@ -2689,7 +2785,7 @@ static void ask_ai(const char *prompt) {
         }
         dynamic_prompt[dp++] = '.';
         dynamic_prompt[dp++] = ' ';
-        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep, chain. Use 'chain cmd1; cmd2' to run multiple commands. ";
+        s = "Available tools: run, exec, read, write, append, replace, find, grep, mkdir, rm, ls, cp, mv, chmod, head, tail, http, post, sleep, chain, status, diff, which. Use 'chain cmd1; cmd2' to run multiple commands. ";
         while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
         s = "Use 'exec' for built-in shell commands. Respond with the tool call only, no explanation.";
         while (*s && dp < sizeof(dynamic_prompt) - 1) dynamic_prompt[dp++] = *s++;
@@ -3270,6 +3366,66 @@ static void ask_ai(const char *prompt) {
             }
             linebuf[si] = '\0';
             linepos = si;
+        } else if (strcmp_(tc, "status") == 0) {
+            printn("[AGENT] Executing: status");
+            agent_tool_executed = 1;
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                do_status();
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                do_status();
+            }
+        } else if (starts_with(tc, "diff ")) {
+            printn("[AGENT] Executing: diff");
+            agent_tool_executed = 1;
+            char *dp = tc + 5;
+            char *path1 = dp;
+            char *path2 = NULL;
+            for (int i = 0; dp[i]; i++) {
+                if (dp[i] == ' ') {
+                    dp[i] = '\0';
+                    path2 = &dp[i + 1];
+                    break;
+                }
+            }
+            if (path2) {
+                while (*path2 == ' ') path2++;
+                if (agent_auto_mode) {
+                    int pipefd[2];
+                    int cap = capture_setup(pipefd);
+                    do_diff(path1, path2);
+                    if (cap == 0) {
+                        char out[4096];
+                        capture_finish(pipefd, out, sizeof(out));
+                        agent_history_add("system", out);
+                    }
+                } else {
+                    do_diff(path1, path2);
+                }
+            }
+        } else if (starts_with(tc, "which ")) {
+            printn("[AGENT] Executing: which");
+            agent_tool_executed = 1;
+            char *wp = tc + 6;
+            while (*wp == ' ') wp++;
+            if (agent_auto_mode) {
+                int pipefd[2];
+                int cap = capture_setup(pipefd);
+                do_which(wp);
+                if (cap == 0) {
+                    char out[4096];
+                    capture_finish(pipefd, out, sizeof(out));
+                    agent_history_add("system", out);
+                }
+            } else {
+                do_which(wp);
+            }
         }
     } else {
         printn("[AGENT] Could not parse AI response");
@@ -3680,6 +3836,236 @@ static void do_tar_extract(const char *tarfile) {
     printn(" entries");
 }
 
+static void rm_rf(const char *path) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) return;
+    char buf[1024];
+    int n;
+    while ((n = sys_getdents64(fd, buf, sizeof(buf))) > 0) {
+        int pos = 0;
+        while (pos < n) {
+            struct linux_dirent64 *de = (struct linux_dirent64 *)(buf + pos);
+            if (de->d_name[0] == '.' && (de->d_name[1] == '\0' || (de->d_name[1] == '.' && de->d_name[2] == '\0'))) {
+                pos += de->d_reclen;
+                continue;
+            }
+            char subpath[256];
+            int i = 0;
+            while (path[i] && i < (int)sizeof(subpath) - 1) { subpath[i] = path[i]; i++; }
+            if (i < (int)sizeof(subpath) - 1) subpath[i++] = '/';
+            int j = 0;
+            while (de->d_name[j] && i < (int)sizeof(subpath) - 1) { subpath[i++] = de->d_name[j++]; }
+            subpath[i] = '\0';
+            if (de->d_type == 4) {
+                rm_rf(subpath);
+                sys_rmdir(subpath);
+            } else {
+                sys_unlink(subpath);
+            }
+            pos += de->d_reclen;
+        }
+    }
+    sys_close(fd);
+}
+
+static void do_tar_extract_to(const char *tarfile, const char *target_dir) {
+    char old_cwd[256];
+    if (sys_getcwd(old_cwd, sizeof(old_cwd)) < 0) {
+        old_cwd[0] = '\0';
+    }
+    sys_mkdir(target_dir, 0755);
+    sys_chdir(target_dir);
+    do_tar_extract(tarfile);
+    if (old_cwd[0]) {
+        sys_chdir(old_cwd);
+    }
+}
+
+static void do_pkg_install(const char *host, const char *path, const char *name) {
+    char tarpath[128] = "/tmp/";
+    int i = 5;
+    const char *p = name;
+    while (*p && i < (int)sizeof(tarpath) - 5) tarpath[i++] = *p++;
+    tarpath[i++] = '.';
+    tarpath[i++] = 't';
+    tarpath[i++] = 'a';
+    tarpath[i++] = 'r';
+    tarpath[i] = '\0';
+
+    do_wget(host, path, tarpath);
+
+    char pkgdir[128] = "/data/pkg/";
+    i = 10;
+    p = name;
+    while (*p && i < (int)sizeof(pkgdir) - 1) pkgdir[i++] = *p++;
+    pkgdir[i] = '\0';
+
+    rm_rf(pkgdir);
+    sys_mkdir("/data/pkg", 0755);
+    do_tar_extract_to(tarpath, pkgdir);
+
+    // Read manifest and create symlinks
+    char manifest_path[256];
+    i = 0;
+    p = pkgdir;
+    while (*p && i < (int)sizeof(manifest_path) - 10) manifest_path[i++] = *p++;
+    const char *msuffix = "/manifest";
+    int si = 0;
+    while (msuffix[si] && i < (int)sizeof(manifest_path) - 1) manifest_path[i++] = msuffix[si++];
+    manifest_path[i] = '\0';
+
+    int mfd = sys_open(manifest_path, 0, 0);
+    if (mfd >= 0) {
+        char mbuf[512];
+        int mlen = sys_read(mfd, mbuf, sizeof(mbuf) - 1);
+        sys_close(mfd);
+        if (mlen > 0) {
+            mbuf[mlen] = '\0';
+            char *mp = mbuf;
+            while (*mp) {
+                if (starts_with(mp, "bin:")) {
+                    mp += 4;
+                    while (*mp == ' ') mp++;
+                    while (*mp && *mp != '\n') {
+                        char binname[64];
+                        int bi = 0;
+                        while (*mp && *mp != ',' && *mp != '\n' && bi < 63) {
+                            binname[bi++] = *mp++;
+                        }
+                        binname[bi] = '\0';
+                        if (binname[0]) {
+                            char linkpath[128] = "/data/bin/";
+                            int li = 10;
+                            int bj = 0;
+                            while (binname[bj] && li < 127) linkpath[li++] = binname[bj++];
+                            linkpath[li] = '\0';
+
+                            char target[256];
+                            li = 0;
+                            p = pkgdir;
+                            while (*p && li < (int)sizeof(target) - 1) target[li++] = *p++;
+                            target[li++] = '/';
+                            target[li++] = 'b';
+                            target[li++] = 'i';
+                            target[li++] = 'n';
+                            target[li++] = '/';
+                            bj = 0;
+                            while (binname[bj] && li < (int)sizeof(target) - 1) target[li++] = binname[bj++];
+                            target[li] = '\0';
+
+                            sys_unlink(linkpath);
+                            if (sys_symlink(target, linkpath) == 0) {
+                                print("pkg: linked ");
+                                print(binname);
+                                printn("");
+                            } else {
+                                print("pkg: failed to link ");
+                                printn(binname);
+                            }
+                        }
+                        while (*mp == ' ' || *mp == ',') mp++;
+                    }
+                    break;
+                }
+                while (*mp && *mp != '\n') mp++;
+                if (*mp == '\n') mp++;
+            }
+        }
+    } else {
+        printn("pkg: no manifest found, package installed but not linked");
+    }
+
+    print("pkg: installed ");
+    printn(name);
+}
+
+static void do_pkg_list(void) {
+    int fd = sys_open("/data/pkg", 0, 0);
+    if (fd < 0) {
+        printn("pkg: no packages installed");
+        return;
+    }
+    char buf[1024];
+    int n;
+    int count = 0;
+    while ((n = sys_getdents64(fd, buf, sizeof(buf))) > 0) {
+        int pos = 0;
+        while (pos < n) {
+            struct linux_dirent64 *de = (struct linux_dirent64 *)(buf + pos);
+            if (de->d_name[0] != '.' && de->d_type == 4) {
+                printn(de->d_name);
+                count++;
+            }
+            pos += de->d_reclen;
+        }
+    }
+    sys_close(fd);
+    if (count == 0) {
+        printn("pkg: no packages installed");
+    }
+}
+
+static void do_pkg_remove(const char *name) {
+    char pkgdir[128] = "/data/pkg/";
+    int i = 10;
+    const char *p = name;
+    while (*p && i < (int)sizeof(pkgdir) - 1) pkgdir[i++] = *p++;
+    pkgdir[i] = '\0';
+
+    // Read manifest to remove symlinks
+    char manifest_path[256];
+    i = 0;
+    p = pkgdir;
+    while (*p && i < (int)sizeof(manifest_path) - 10) manifest_path[i++] = *p++;
+    const char *msuffix = "/manifest";
+    int si = 0;
+    while (msuffix[si] && i < (int)sizeof(manifest_path) - 1) manifest_path[i++] = msuffix[si++];
+    manifest_path[i] = '\0';
+
+    int mfd = sys_open(manifest_path, 0, 0);
+    if (mfd >= 0) {
+        char mbuf[512];
+        int mlen = sys_read(mfd, mbuf, sizeof(mbuf) - 1);
+        sys_close(mfd);
+        if (mlen > 0) {
+            mbuf[mlen] = '\0';
+            char *mp = mbuf;
+            while (*mp) {
+                if (starts_with(mp, "bin:")) {
+                    mp += 4;
+                    while (*mp == ' ') mp++;
+                    while (*mp && *mp != '\n') {
+                        char binname[64];
+                        int bi = 0;
+                        while (*mp && *mp != ',' && *mp != '\n' && bi < 63) {
+                            binname[bi++] = *mp++;
+                        }
+                        binname[bi] = '\0';
+                        if (binname[0]) {
+                            char linkpath[128] = "/data/bin/";
+                            int li = 10;
+                            int bj = 0;
+                            while (binname[bj] && li < 127) linkpath[li++] = binname[bj++];
+                            linkpath[li] = '\0';
+                            sys_unlink(linkpath);
+                        }
+                        while (*mp == ' ' || *mp == ',') mp++;
+                    }
+                    break;
+                }
+                while (*mp && *mp != '\n') mp++;
+                if (*mp == '\n') mp++;
+            }
+        }
+    }
+
+    rm_rf(pkgdir);
+    sys_rmdir(pkgdir);
+
+    print("pkg: removed ");
+    printn(name);
+}
+
 static void agent_auto_loop(int max_iter, int interval_secs) {
     if (max_iter <= 0) max_iter = auto_max_iter_default;
     if (interval_secs <= 0) interval_secs = auto_interval_default;
@@ -3765,7 +4151,7 @@ static void agent_loop(void) {
     agent_load_history("/data/agent.history");
 
     printn("\n[AGENT] AI Agent loop started.");
-    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, done");
+    printn("[AGENT] Commands: ask <prompt>, auto [n] [s], history, reset, save [path], load [path], config, model [name], exec <cmd>, run <cmd>, read <file>, write <file> <data>, append <file> <data>, replace <file> <old> <new>, find <dir> <name>, grep <p> <file>, mkdir <dir>, rm <file>, ls [dir], cp <src> <dst>, mv <src> <dst>, chmod <mode> <file>, head <file> [n], tail <file> [n], http <host> [path], post <host> <path> <body>, sleep <secs>, chain <cmd1>; <cmd2>, status, diff <f1> <f2>, which <name>, done");
     const char *sp = env_get("NYMORIS_SYSTEM_PROMPT");
     if (sp && sp[0]) {
         printn("[AGENT] Custom system prompt active.");
@@ -3981,6 +4367,9 @@ static void dispatch_command(void) {
         printn("  ping <host>       Ping host");
         printn("  wget <h> <p> <f>  Download file via HTTP");
         printn("  install <h> <p> <n> Download binary to /data/bin/");
+        printn("  pkg install <h> <p> <n> Install package from tar archive");
+        printn("  pkg list          List installed packages");
+        printn("  pkg remove <n>    Remove installed package");
         printn("  tar x <file>      Extract tar archive");
         printn("  http <host> [p]   HTTP GET");
         printn("  sleep <secs>      Sleep");
@@ -4018,7 +4407,9 @@ static void dispatch_command(void) {
         printn("  stat <file>       Show file metadata");
         printn("  ln [-s] <t> <l>  Create hard/symbolic link");
         printn("  cmp <f1> <f2>     Compare two files");
+        printn("  diff <f1> <f2>    Show line-by-line differences");
         printn("  find <d> <n>     Find file by name");
+        printn("  which <name>      Find executable in /data/bin");
         printn("  source <file>     Execute commands from file");
         printn("  agent             Start AI agent loop");
         printn("  llm <m> <p>      Run local LLM inference");
@@ -4287,6 +4678,24 @@ static void dispatch_command(void) {
         } else {
             printn("Usage: cmp <file1> <file2>");
         }
+    } else if (starts_with(linebuf, "diff ")) {
+        char *rest = linebuf + 5;
+        while (*rest == ' ') rest++;
+        char *path1 = rest;
+        char *path2 = NULL;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                path2 = &rest[i + 1];
+                break;
+            }
+        }
+        if (path2) {
+            while (*path2 == ' ') path2++;
+            do_diff(path1, path2);
+        } else {
+            printn("Usage: diff <file1> <file2>");
+        }
     } else if (starts_with(linebuf, "find ")) {
         char *rest = linebuf + 5;
         while (*rest == ' ') rest++;
@@ -4304,6 +4713,10 @@ static void dispatch_command(void) {
         } else {
             printn("Usage: find <dir> <name>");
         }
+    } else if (starts_with(linebuf, "which ")) {
+        char *name = linebuf + 6;
+        while (*name == ' ') name++;
+        do_which(name);
     } else if (starts_with(linebuf, "source ")) {
         source_file(linebuf + 7);
     } else if (strcmp_(linebuf, "reboot") == 0) {
@@ -4592,6 +5005,46 @@ static void dispatch_command(void) {
         }
     } else if (starts_with(linebuf, "tar x ")) {
         do_tar_extract(linebuf + 6);
+    } else if (starts_with(linebuf, "pkg ")) {
+        char *rest = linebuf + 4;
+        while (*rest == ' ') rest++;
+        if (starts_with(rest, "install ")) {
+            char *args = rest + 7;
+            while (*args == ' ') args++;
+            char *host = args;
+            char *path = NULL;
+            char *name = NULL;
+            for (int i = 0; args[i]; i++) {
+                if (args[i] == ' ') {
+                    args[i] = '\0';
+                    path = &args[i + 1];
+                    break;
+                }
+            }
+            if (path) {
+                for (int i = 0; path[i]; i++) {
+                    if (path[i] == ' ') {
+                        path[i] = '\0';
+                        name = &path[i + 1];
+                        break;
+                    }
+                }
+            }
+            if (name) {
+                while (*name == ' ') name++;
+                do_pkg_install(host, path, name);
+            } else {
+                printn("Usage: pkg install <host> <path> <name>");
+            }
+        } else if (strcmp_(rest, "list") == 0) {
+            do_pkg_list();
+        } else if (starts_with(rest, "remove ")) {
+            char *name = rest + 7;
+            while (*name == ' ') name++;
+            do_pkg_remove(name);
+        } else {
+            printn("Usage: pkg install <host> <path> <name> | pkg list | pkg remove <name>");
+        }
     } else if (starts_with(linebuf, "sleep ")) {
         int secs = 0;
         char *p = linebuf + 6;

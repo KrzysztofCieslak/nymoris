@@ -28,9 +28,10 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
 - [x] Interactive agent shell with 40+ built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, write, append, replace, sort, uniq)
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, diff, write, append, replace, sort, uniq)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
+- [x] Package manager (`pkg install/list/remove`)
 - [x] System control (reboot, poweroff, free, uptime, ps, kill)
 - [x] Ctrl+C interrupts long-running commands (sleep, agent, background jobs)
 - [x] Environment variables, aliases, command history, job control
@@ -202,7 +203,9 @@ Lines starting with `#` are comments and ignored.
 | `stat <file>` | Show file metadata (size, mode, uid, gid, links) |
 | `ln [-s] <target> <link>` | Create hard/symbolic link |
 | `cmp <file1> <file2>` | Compare two files |
+| `diff <file1> <file2>` | Show line-by-line differences |
 | `find <dir> <name>` | Find file by name |
+| `which <name>` | Find executable in `/data/bin` |
 | `cd <dir>` | Change directory |
 | `pwd` | Print working directory |
 
@@ -246,6 +249,22 @@ write /data/hello "Hello\nWorld\n"
 | `wget <host> <path> <outfile>` | Download file |
 | `install <host> <path> <name>` | Download binary to `/data/bin/` |
 | `tar x <file>` | Extract tar archive |
+
+### Package Manager
+
+Packages are tar archives with a `manifest` file at the root:
+
+```
+name: mypackage
+version: 1.0
+bin: tool1,tool2
+```
+
+| Command | Description |
+|---------|-------------|
+| `pkg install <host> <path> <name>` | Download and install package |
+| `pkg list` | List installed packages |
+| `pkg remove <name>` | Remove installed package |
 
 ### Environment & Shell
 
@@ -299,6 +318,9 @@ Inside the `agent` loop:
 | `head <file> [n]` | Show first n lines |
 | `tail <file> [n]` | Show last n lines |
 | `chain <cmd1>; <cmd2>` | Execute multiple commands in sequence |
+| `status` | Show system status (uptime, memory, disk) |
+| `diff <file1> <file2>` | Show line-by-line differences |
+| `which <name>` | Find executable in `/data/bin` |
 | `http <host> [path]` | HTTP GET |
 | `post <host> <path> <body>` | HTTP POST |
 | `sleep <secs>` | Sleep |
@@ -482,10 +504,13 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Replace command (find/replace in files)
 - [x] Sort command (alphabetical line sort)
 - [x] Uniq command (remove duplicate adjacent lines)
+- [x] Diff command (line-by-line comparison)
+- [x] Which command (find executables)
+- [x] Pkg package manager (install/list/remove)
 - [ ] ELF Loader
 
 ### Phase 3: Production
-- [ ] Full agent framework support
+- [x] Full agent framework support (package manager, 23+ agent tools)
 - [x] Package manager precursor (`install`, `tar x`)
 - [x] Real hardware deployment scripts (ISO, GRUB, PXE)
 - [ ] Distributed agent clusters
