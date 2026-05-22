@@ -28,7 +28,7 @@ The init program (`init.c`) is a minimal C program using raw Linux syscalls — 
 
 - [x] Boots Linux kernel + custom initramfs in QEMU (serial & GUI)
 - [x] Interactive agent shell with 50+ built-in commands
-- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, diff, write, append, replace, sort, uniq)
+- [x] Basic filesystem operations (cat, ls, mkdir, cp, mv, rm, touch, hexdump, stat, base64, ln, cmp, diff, cut, write, append, replace, sort, uniq)
 - [x] HTTP client via raw sockets (GET + POST)
 - [x] ICMP ping via raw sockets
 - [x] UDP broadcast/listen for distributed agent communication
@@ -191,6 +191,7 @@ Lines starting with `#` are comments and ignored.
 | `base64 <file>` | Base64 encode file |
 | `base64 -d <file>` | Base64 decode file |
 | `grep [-n] <pattern> <file>` | Search for pattern (with line numbers) |
+| `cut <file> <field>` | Extract field from lines (whitespace delimited) |
 | `wc <file>` | Count lines/words/bytes |
 | `sort <file>` | Sort lines alphabetically |
 | `uniq <file>` | Remove duplicate adjacent lines |
@@ -517,6 +518,7 @@ See `scripts/deploy/README.md` for GRUB, syslinux, and PXE setup details.
 - [x] Which command (find executables)
 - [x] Pkg package manager (install/list/remove)
 - [x] Grep with line numbers (`grep -n`)
+- [x] Cut command (field extraction)
 - [x] Time command execution
 - [x] Repeat and watch commands
 - [x] UDP broadcast/listen for agent communication

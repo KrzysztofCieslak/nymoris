@@ -1144,6 +1144,56 @@ static void grep_file(const char *pattern, const char *path, int show_lines) {
     sys_close(fd);
 }
 
+static void do_cut(const char *path, int field) {
+    int fd = sys_open(path, 0, 0);
+    if (fd < 0) {
+        printn("cut: cannot open file");
+        return;
+    }
+    if (field <= 0) field = 1;
+    char buf[1024];
+    int n;
+    char line[512];
+    int line_pos = 0;
+
+    while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
+        for (int i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                line[line_pos] = '\0';
+                // Extract field
+                int current_field = 1;
+                int in_field = 0;
+                int start = -1;
+                for (int j = 0; line[j]; j++) {
+                    if (line[j] == ' ' || line[j] == '\t') {
+                        if (in_field) {
+                            if (current_field == field) {
+                                line[j] = '\0';
+                                printn(line + start);
+                                break;
+                            }
+                            in_field = 0;
+                            current_field++;
+                        }
+                    } else {
+                        if (!in_field) {
+                            in_field = 1;
+                            start = j;
+                        }
+                    }
+                }
+                if (in_field && current_field == field) {
+                    printn(line + start);
+                }
+                line_pos = 0;
+            } else if (line_pos < sizeof(line) - 1) {
+                line[line_pos++] = buf[i];
+            }
+        }
+    }
+    sys_close(fd);
+}
+
 static void head_file(const char *path, int nlines) {
     int fd = sys_open(path, 0, 0);
     if (fd < 0) {
@@ -4481,6 +4531,7 @@ static void dispatch_command(void) {
         printn("  base64 <file>     Base64 encode file");
         printn("  base64 -d <file>  Base64 decode file");
         printn("  grep [-n] <p> <file> Search for pattern (with line numbers)");
+        printn("  cut <file> <field> Extract field from lines (whitespace delimited)");
         printn("  wc <file>         Count lines/words/bytes");
         printn("  sort <file>       Sort lines alphabetically");
         printn("  uniq <file>       Remove duplicate adjacent lines");
@@ -4923,6 +4974,28 @@ static void dispatch_command(void) {
             grep_file(pattern, path, show_lines);
         } else {
             printn("Usage: grep [-n] <pattern> <file>");
+        }
+    } else if (starts_with(linebuf, "cut ")) {
+        char *rest = linebuf + 4;
+        while (*rest == ' ') rest++;
+        char *path = rest;
+        int field = 1;
+        for (int i = 0; rest[i]; i++) {
+            if (rest[i] == ' ') {
+                rest[i] = '\0';
+                field = 0;
+                char *p = &rest[i + 1];
+                while (*p >= '0' && *p <= '9') {
+                    field = field * 10 + (*p - '0');
+                    p++;
+                }
+                break;
+            }
+        }
+        if (field > 0) {
+            do_cut(path, field);
+        } else {
+            printn("Usage: cut <file> <field>");
         }
     } else if (starts_with(linebuf, "wc ")) {
         wc_file(linebuf + 3);
